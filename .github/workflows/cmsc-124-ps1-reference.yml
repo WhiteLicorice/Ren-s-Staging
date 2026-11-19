@@ -121,8 +121,16 @@ jobs:
               echo "No open issue to close."
               exit 0
             fi
-            # A passing job must not close an issue that a failing job of the
-            # same run opened. The failure body names the run URL.
+            # A passing job must not close an issue that a failing job of the same run
+            # opened. The failure text names the run URL, in the body of a new issue or
+            # in a comment on an open one.
+            body_text="$(gh api "repos/$repo/issues/$number" --jq '.body')"
+            case "$body_text" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
             comments="$(gh api --paginate "repos/$repo/issues/$number/comments?per_page=100" --jq '.[].body')"
             case "$comments" in
               *"$RUN_URL"*)
@@ -136,6 +144,12 @@ jobs:
 
           if [ -n "$number" ]; then
             gh issue comment "$number" -R "$repo" --body-file "$body"
+            # A passing job of this run may have closed the issue between the lookup and
+            # the comment. A failure must leave the issue open.
+            state="$(gh api "repos/$repo/issues/$number" --jq '.state')"
+            if [ "$state" = "closed" ]; then
+              gh issue reopen "$number" -R "$repo"
+            fi
           else
             gh issue create -R "$repo" --title "$title" --body-file "$body"
           fi
