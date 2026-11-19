@@ -69,6 +69,7 @@ jobs:
 
       - name: Report the result
         if: always()
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
           WORKFLOW_NAME: ${{ github.workflow }}
@@ -180,6 +181,7 @@ jobs:
 
       - name: Report the result
         if: always()
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
           WORKFLOW_NAME: ${{ github.workflow }}
