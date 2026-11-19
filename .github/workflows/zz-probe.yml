@@ -1,0 +1,16 @@
+name: zz-probe
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: probe
+        required: false
+        default: master
+        type: string
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "probe ${{ inputs.ref }}"
