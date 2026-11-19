@@ -1,0 +1,65 @@
+# This workflow replaces the starter modules with the instructor reference.
+# It then runs the published check.sh and requires a successful result.
+#
+# The starter workflow fails 30 of 63 checks because its modules are incomplete.
+# This workflow holds the solution and verifies assignment completion.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-124-ps1-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+  schedule:
+    # Run each Sunday. check.sh fetches the harness from its pinned URL.
+    # This schedule detects an unavailable URL without a repository change.
+    - cron: '17 20 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # Fetch only the starter submodule.
+      - name: Fetch the pinned starter
+        run: git -C materials submodule update --init -- "CMSC 124/Lecture/ps-data-types/starter"
+
+      - name: Say which starter version is under test
+        run: git -C "materials/CMSC 124/Lecture/ps-data-types/starter" describe --tags --always
+
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      # verify.sh copies the starter and inserts the reference source files.
+      # It runs the starter's published check.sh against that copy.
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 124/Lecture/ps-data-types/reference/verify.sh"

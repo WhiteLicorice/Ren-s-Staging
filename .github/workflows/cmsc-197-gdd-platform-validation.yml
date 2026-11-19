@@ -1,0 +1,477 @@
+name: cmsc-197-gdd-platform-validation
+
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 75
+    env:
+      PROOF: materials/CMSC 197 (Game Design and Development)/Tasks/reviews/editor-proof
+      GODOT_VERSION: 4.7.2
+      REPLAY: materials/.github/godot-editor-replay
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          # The three starter submodules are public. The three reference
+          # submodules are private, and this job does not use them. Fetch only
+          # the starters, so a private repository cannot block the checkout.
+          submodules: false
+
+      - name: Fetch the starter submodules
+        run: |
+          set -euo pipefail
+          git -C materials submodule update --init -- \
+            "CMSC 197 (Game Design and Development)/Laboratory/breakout-starter" \
+            "CMSC 197 (Game Design and Development)/Laboratory/mega-man-starter" \
+            "CMSC 197 (Game Design and Development)/Laboratory/crimsonland-starter"
+
+      - name: Record the runner and existing dependencies
+        run: |
+          EVIDENCE="$RUNNER_TEMP/evidence"
+          mkdir -p "$EVIDENCE"
+          printf 'EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
+          printf 'RUN_DIR=%s\n' "$RUNNER_TEMP/editor-replay" >> "$GITHUB_ENV"
+          exec > >(tee "$EVIDENCE/inventory.txt") 2>&1
+          date -u
+          uname -a
+          printf 'image=%s version=%s\n' "$ImageOS" "$ImageVersion"
+          printf 'workflow_commit=%s source_commit=%s\n' "$GITHUB_SHA" "$(git -C materials rev-parse HEAD)"
+          printf 'run=%s/attempts/%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          printf 'run_url=%s/%s/actions/runs/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+          command -v python3 curl unzip
+          python3 --version
+          curl --version
+          unzip -v
+          if [ "$RUNNER_OS" = macOS ]; then
+            sw_vers
+            xcodebuild -version
+            xcrun --sdk macosx --show-sdk-version
+            brew list --versions
+          else
+            cat /etc/os-release
+            dpkg-query -W
+          fi
+
+      - name: Install the pinned standard editor and templates
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/setup.txt") 2>&1
+          tools="$RUNNER_TEMP/godot"
+          mkdir -p "$tools"
+          cd "$tools"
+          base="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable"
+          if [ "$RUNNER_OS" = macOS ]; then
+            archive="Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+            data="$HOME/Library/Application Support/Godot"
+          else
+            archive="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+            data="$HOME/.local/share/godot"
+          fi
+          templates="Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          curl --fail --location --retry 3 "$base/SHA512-SUMS.txt" -o SHA512-SUMS.txt
+          curl --fail --location --retry 3 "$base/$archive" -o "$archive"
+          curl --fail --location --retry 3 "$base/$templates" -o "$templates"
+          python3 - "$archive" "$templates" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          sums = {}
+          for line in pathlib.Path('SHA512-SUMS.txt').read_text().splitlines():
+              line = line.strip()
+              if not line or line.startswith('#'):
+                  continue
+              parts = line.split()
+              if len(parts) != 2:
+                  continue
+              digest, name = parts
+              sums[name.lstrip('*')] = digest
+          for filename in sys.argv[1:]:
+              if filename not in sums:
+                  raise SystemExit(f'missing checksum for {filename}')
+              actual = hashlib.file_digest(open(filename, 'rb'), 'sha512').hexdigest()
+              expected = sums[filename]
+              print(filename, actual, 'match=', actual == expected)
+              if actual != expected:
+                  raise SystemExit(1)
+          PY
+          unzip -q "$archive"
+          unzip -q "$templates"
+          test "$(cat templates/version.txt)" = "${GODOT_VERSION}.stable"
+          mkdir -p "$data/export_templates/${GODOT_VERSION}.stable"
+          cp -R templates/. "$data/export_templates/${GODOT_VERSION}.stable/"
+          if [ "$RUNNER_OS" = macOS ]; then
+            engine="$tools/Godot.app/Contents/MacOS/Godot"
+          else
+            engine="$tools/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          fi
+          chmod +x "$engine"
+          "$engine" --version | tee "$EVIDENCE/engine-version.txt"
+          test "$("$engine" --version)" = 4.7.2.stable.official.ed1daf0bf
+          printf 'ENGINE=%s\n' "$engine" >> "$GITHUB_ENV"
+          printf 'GODOT_TEMPLATES=%s\n' "$data/export_templates" >> "$GITHUB_ENV"
+
+      - name: Import and run the three workshop starters
+        # The starters carry no gameplay. A clean import and a clean run prove
+        # the project settings and the asset set on a fresh machine.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/starters.txt") 2>&1
+          root="$GITHUB_WORKSPACE/materials/CMSC 197 (Game Design and Development)/Laboratory"
+          for game in breakout mega-man crimsonland; do
+            project="$root/$game-starter"
+            test -f "$project/project.godot"
+            log="$EVIDENCE/starter-$game.log"
+            "$ENGINE" --headless --path "$project" --import > "$log" 2>&1
+            "$ENGINE" --headless --path "$project" --quit >> "$log" 2>&1
+            cat "$log"
+            if grep -E '(^|] )ERROR|SCRIPT ERROR|Failed to load|Cannot open' "$log"; then
+              echo "starter $game reported an error"
+              exit 1
+            fi
+            echo "starter $game ok"
+          done
+
+      # The saved reference state is instructor material. Its import log lists
+      # every file in the reference project, so the log stays in the evidence
+      # file and never reaches the job log. Only the check result is printed.
+      - name: Import and check the saved reference state
+        # The reference state includes the Step 12 typed line.
+        run: |
+          set -euo pipefail
+          project="$RUNNER_TEMP/project"
+          cp -R "$PROOF/reference" "$project"
+          "$ENGINE" --headless --path "$project" --import > "$EVIDENCE/import.txt" 2>&1
+          echo "the reference state imported"
+          "$ENGINE" --headless --path "$project" --script "$GITHUB_WORKSPACE/$PROOF/check.gd" > "$EVIDENCE/check.txt" 2>&1
+          grep -Fx 'checks: 22 passed, 0 failed' "$EVIDENCE/check.txt"
+          "$ENGINE" --headless --path "$project" --quit-after 2 > "$EVIDENCE/runtime.txt" 2>&1
+          grep -Fx CMSC197_T01_RUNTIME_READY "$EVIDENCE/runtime.txt"
+
+      - name: Install the Linux replay tools
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xdotool scrot openbox xterm x11-utils
+
+      - name: Check the diagnostic probes
+        run: python3 "$REPLAY/probes.py"
+
+      - name: Set the macOS display to 1920 by 1080
+        # The trial client is 1440 by 878. The runner's default 1024 by 768
+        # screen cannot hold it, and no 1440 by 900 mode exists. This mode can.
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/display.txt") 2>&1
+          brew install cliclick displayplacer
+          id="$(displayplacer list | awk -F': ' '/Persistent screen id/{print $2; exit}')"
+          printf 'display_id=%s\n' "$id"
+          displayplacer "id:$id res:1920x1080 hz:60 color_depth:7 enabled:true scaling:off origin:(0,0) degree:0"
+          sleep 2
+          displayplacer list
+
+      - name: Replay the manual, Steps 1 to 19
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/replay-steps-1-19.txt") 2>&1
+          python3 "$REPLAY/drive.py" session-start \
+            --run-dir "$RUN_DIR" \
+            --engine "$ENGINE" \
+            --templates "$GODOT_TEMPLATES"
+          python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 1 --end 19
+
+      - name: Replay the manual, Steps 20 to 22
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/replay-steps-20-22.txt") 2>&1
+          python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 20 --end 22
+
+      - name: Replay the manual, Steps 20 and 21
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/replay-steps-20-21.txt") 2>&1
+          python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 20 --end 21
+
+      - name: Record Step 22 as unsupported on macOS
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/replay-step-22.txt") 2>&1
+          python3 "$REPLAY/drive.py" record-unsupported --run-dir "$RUN_DIR" \
+            --step 22 \
+            --reason "the exported build is a Linux x86_64 ELF, and macOS cannot execute it"
+
+      - name: Export the macOS extra build
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          python3 "$REPLAY/drive.py" extra-macos \
+            --run-dir "$RUN_DIR" \
+            --engine "$ENGINE" \
+            --project "$RUNNER_TEMP/project"
+
+      - name: Verify the replay evidence
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/verify.txt") 2>&1
+          if [ "$RUNNER_OS" = Linux ]; then
+            python3 "$REPLAY/verify.py" --run-dir "$RUN_DIR" --mode pass
+          else
+            python3 "$REPLAY/verify.py" --run-dir "$RUN_DIR" --mode pass \
+              --allow-unsupported-step-22
+          fi
+
+      - name: Stop the replay desktop
+        if: always() && runner.os == 'Linux'
+        run: python3 "$REPLAY/drive.py" session-stop --run-dir "$RUN_DIR" || true
+
+      - name: Export the publication fixture for the supported targets
+        # The preset lives under Laboratory/publication-proof/. The job copies
+        # it into a temporary starter copy. It never edits the starter.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/publication-export.txt") 2>&1
+          root="$GITHUB_WORKSPACE/materials/CMSC 197 (Game Design and Development)/Laboratory"
+          fixture="$RUNNER_TEMP/publication"
+          dist="$RUNNER_TEMP/dist"
+          rm -rf "$fixture" "$dist"
+          mkdir -p "$fixture" "$dist/linux" "$dist/windows" "$dist/web" "$dist/android" "$dist/macos" "$dist/ios"
+          cp -R "$root/breakout-starter/." "$fixture/"
+          rm -rf "$fixture/.git" "$fixture/.godot"
+          cp "$root/publication-proof/export_presets.cfg" "$fixture/export_presets.cfg"
+          short="$(git -C "$GITHUB_WORKSPACE/materials" rev-parse --short=12 HEAD)"
+          printf 'source_commit=%s\nshort_commit=%s\n' "$(git -C "$GITHUB_WORKSPACE/materials" rev-parse HEAD)" "$short"
+          python3 - "$fixture" "$short" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          fixture = pathlib.Path(sys.argv[1])
+          short = sys.argv[2]
+          project = fixture / "project.godot"
+          text = project.read_text(encoding="utf-8")
+          version = f'config/version="0.1.0+{short}"'
+          text = re.sub(r"(?m)^(config/name=.*)$", lambda m: m.group(1) + "\n" + version, text, count=1)
+          if "import_etc2_astc" not in text:
+              text = text.replace("[rendering]", "[rendering]\n\ntextures/vram_compression/import_etc2_astc=true", 1)
+          if "[autoload]" not in text:
+              text += '\n[autoload]\n\nPublicationProbe="*res://publication_probe.gd"\n'
+          project.write_text(text, encoding="utf-8")
+          probe = (
+              "extends Node\n\n"
+              "func _ready() -> void:\n"
+              '\tvar version: String = str(ProjectSettings.get_setting("application/config/version", "unset"))\n'
+              '\tprint("CMSC197_PUBLICATION_READY version=%s engine=%s" % [version, Engine.get_version_info()["string"]])\n'
+          )
+          (fixture / "publication_probe.gd").write_text(probe, encoding="utf-8")
+          PY
+          "$ENGINE" --headless --path "$fixture" --import
+
+          run_export() {
+            name="$1"
+            out="$2"
+            "$ENGINE" --headless --path "$fixture" --export-release "$name" "$out"
+            test -e "$out"
+            printf 'exported %s -> %s\n' "$name" "$out"
+          }
+
+          run_export "Linux" "$dist/linux/probe.x86_64"
+          run_export "Windows" "$dist/windows/probe.exe"
+          run_export "Web" "$dist/web/index.html"
+
+          if [ "$RUNNER_OS" = Linux ]; then
+            export JAVA_HOME="$JAVA_HOME_17_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+            mkdir -p "$HOME/.config/godot"
+            cat > "$HOME/.config/godot/editor_settings-4.7.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/java_sdk_path="$JAVA_HOME_17_X64"
+          export/android/android_sdk_path="$ANDROID_SDK_ROOT"
+          export/android/debug_keystore="$fixture/debug.keystore"
+          EOF
+            storepass="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+            "$JAVA_HOME/bin/keytool" -genkeypair -v \
+              -keystore "$fixture/release.keystore" \
+              -storepass "$storepass" \
+              -alias cmsc197 \
+              -keypass "$storepass" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=CMSC 197 Publication,O=CMSC,C=PH"
+            export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$fixture/release.keystore"
+            export GODOT_ANDROID_KEYSTORE_RELEASE_USER="cmsc197"
+            export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$storepass"
+            run_export "Android" "$dist/android/probe.apk"
+            buildtools="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/*/ | sort -V | tail -1)"
+            "$buildtools/apksigner" verify --verbose --print-certs "$dist/android/probe.apk" | tee "$EVIDENCE/android-signature.txt"
+            if [ -x "$buildtools/aapt" ]; then
+              "$buildtools/aapt" dump badging "$dist/android/probe.apk"
+            else
+              "$buildtools/aapt2" dump badging "$dist/android/probe.apk"
+            fi | grep -E '^(package|sdkVersion|targetSdkVersion|application-label)' | tee "$EVIDENCE/android-badging.txt"
+          fi
+
+          if [ "$RUNNER_OS" = macOS ]; then
+            run_export "macOS" "$dist/macos/probe.app"
+            python3 - "$fixture/export_presets.cfg" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+          # Godot refuses to export iOS without a Team ID. This placeholder only
+          # lets Godot generate the Xcode project for a simulator build. It
+          # cannot sign a device build.
+          text = text.replace('application/app_store_team_id=""', 'application/app_store_team_id="CMSC197T04"')
+          path.write_text(text, encoding="utf-8")
+          PY
+            run_export "iOS" "$dist/ios/probe"
+            test -d "$dist/ios/probe.xcodeproj"
+            printf 'ios_placeholder_team=CMSC197T04\n'
+          fi
+
+          (cd "$dist/web" && zip -q -r "$dist/probe-web.zip" .)
+          unzip -l "$dist/probe-web.zip" | tee "$EVIDENCE/web-archive.txt"
+          grep -E ' index\.(html|js|wasm|pck)$' "$EVIDENCE/web-archive.txt"
+          python3 - "$dist" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          for path in sorted(root.rglob("*")):
+              if path.is_file():
+                  digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                  print(f"{digest}  {path.relative_to(root)}  {path.stat().st_size}")
+          PY
+
+      - name: Run the exported publication builds
+        # Linux and macOS run their native artifact. Linux also runs the Web
+        # build in headless Chrome. Windows and Android artifacts are exported
+        # but cannot run on this runner, so their runtime evidence stays open.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/publication-run.txt") 2>&1
+          dist="$RUNNER_TEMP/dist"
+          short="$(git -C "$GITHUB_WORKSPACE/materials" rev-parse --short=12 HEAD)"
+          expected="0.1.0+$short"
+          marker="CMSC197_PUBLICATION_READY version=$expected"
+
+          if [ "$RUNNER_OS" = Linux ]; then
+            chmod +x "$dist/linux/probe.x86_64"
+            "$dist/linux/probe.x86_64" --headless --quit-after 10 | tee "$EVIDENCE/linux-run.txt"
+            grep -F "$marker" "$EVIDENCE/linux-run.txt"
+
+            python3 -m pip install --quiet --disable-pip-version-check selenium
+            python3 "$GITHUB_WORKSPACE/materials/.github/publication-validation/web_probe.py" \
+              "$dist/web" 8060 "$expected" | tee "$EVIDENCE/web-run.txt"
+          else
+            app="$dist/macos/probe.app"
+            exe_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+            "$app/Contents/MacOS/$exe_name" --headless --quit-after 10 | tee "$EVIDENCE/macos-run.txt"
+            grep -F "$marker" "$EVIDENCE/macos-run.txt"
+          fi
+
+      - name: Probe the iOS simulator
+        # Recorded, not gated. A simulator failure is a measurement of this
+        # runner, not proof that the export is wrong. The log names the result.
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/ios-simulator.txt") 2>&1
+          dist="$RUNNER_TEMP/dist"
+          short="$(git -C "$GITHUB_WORKSPACE/materials" rev-parse --short=12 HEAD)"
+          expected="0.1.0+$short"
+          marker="CMSC197_PUBLICATION_READY version=$expected"
+          status=1
+          trap 'printf "ios_simulator_exit=%s\n" "$status"' EXIT
+
+          xcodebuild -project "$dist/ios/probe.xcodeproj" -scheme probe \
+            -configuration Debug -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$dist/ios/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+          app="$(find "$dist/ios/dd/Build/Products/Debug-iphonesimulator" -maxdepth 1 -name '*.app' | head -1)"
+          test -n "$app"
+          printf 'simulator_app=%s\n' "$app"
+
+          device="$(python3 - <<'PY'
+          import json
+          import subprocess
+
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          for runtime, devices in sorted(data["devices"].items(), reverse=True):
+              if "iOS" not in runtime:
+                  continue
+              for entry in devices:
+                  if entry.get("isAvailable") and entry["name"].startswith("iPhone"):
+                      print(entry["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("no available iPhone simulator")
+          PY
+          )"
+          printf 'simulator_device=%s\n' "$device"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl install "$device" "$app"
+          xcrun simctl launch --console-pty "$device" org.cmsc197.probe > "$EVIDENCE/ios-launch.txt" 2>&1 &
+          launch_pid=$!
+          for _ in $(seq 1 120); do
+            if grep -Fq "$marker" "$EVIDENCE/ios-launch.txt" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          xcrun simctl terminate "$device" org.cmsc197.probe || true
+          wait "$launch_pid" || true
+          cat "$EVIDENCE/ios-launch.txt"
+          grep -F "$marker" "$EVIDENCE/ios-launch.txt"
+          status=0
+
+      # The replay evidence holds screenshots of the manual's own steps on a
+      # project the replay builds from the public starter, plus the checker
+      # result. The runner evidence directory is not uploaded: it holds the
+      # import log of the saved reference state, which lists every file in the
+      # instructor project. The short retention keeps a public artifact from
+      # outliving its use.
+      - name: Retain the replay evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cmsc197-t01-${{ matrix.image }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/editor-replay/evidence/
+          retention-days: 3

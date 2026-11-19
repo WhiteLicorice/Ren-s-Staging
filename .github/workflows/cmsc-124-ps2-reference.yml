@@ -1,0 +1,68 @@
+# This workflow runs the CMSC 124 Problem Set 2 starter's own published
+# check.sh with the instructor reference overlaid. It expects a clean pass.
+#
+# The starter repository's own workflow run is red on purpose: it ships an
+# empty prediction table and four unimplemented functions, so it passes 1 of
+# its 75 checks. That says nothing about whether the assignment can be
+# finished. This workflow answers that question, and it lives here because
+# this is the only repository holding the solution.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-124-ps2-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+  schedule:
+    # Sundays, offset from the ps1 reference run so the two do not start
+    # together. setup-r resolves a pinned patch version from an external index,
+    # so this run catches R 4.6.1 becoming unavailable even when nobody has
+    # touched the problem set.
+    - cron: '43 20 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # This repository has many submodules and none of the others matter here.
+      - name: Fetch the pinned starter
+        run: git -C materials submodule update --init -- "CMSC 124/Lecture/ps-r/starter"
+
+      - name: Say which starter version is under test
+        run: git -C "materials/CMSC 124/Lecture/ps-r/starter" describe --tags --always
+
+      # The same version the starter's own workflow and the manual both pin.
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.6.1'
+
+      # verify.sh copies the starter to a temporary directory, overlays
+      # reference/predictions.tsv, src/analysis.R, and ANALYSIS.md, then runs
+      # the starter's published check.sh against it. Expect 75/75.
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 124/Lecture/ps-r/reference/verify.sh"

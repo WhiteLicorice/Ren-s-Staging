@@ -1,0 +1,110 @@
+# This workflow runs the CMSC 125 Problem Set 4 public corpus with the
+# instructor reference overlaid. It expects a clean pass.
+#
+# The starter repository has its own workflow, and that run is red on purpose:
+# the starter ships five unimplemented files, so it passes 8 of its 52 cases.
+# That number says nothing about whether the assignment can be finished. This
+# workflow answers that question, and it lives here because this is the only
+# repository holding the solution.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-125-ps4-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # The Ubuntu gate runs on demand.
+  reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The starter is a submodule. Fetch only that one, because the
+      # repository holds other submodules this run doesn't need.
+      - name: Fetch the starter submodule
+        run: git -C materials submodule update --init -- "CMSC 125/Lecture/ps4/starter"
+        shell: bash
+
+      - name: Report the tools this run grades with
+        run: |
+          cc --version
+          make --version
+          python3 --version
+        shell: bash
+
+      # verify.sh copies the starter to a new work directory. It overlays
+      # reference/src/*.c, runs the starter's own check.sh, runs the student
+      # case, then runs both self-test files. Expect 52/52 cases, 5/5
+      # invariant checks, 1/1 student case, 13/13 and 7/7 self-tests, and
+      # exit 0.
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 125/Lecture/ps4/reference/verify.sh" "$RUNNER_TEMP/ps4-verify"
+        shell: bash
+
+  # The macOS route from the manual runs on demand only, because a macOS
+  # runner costs more than an Ubuntu runner.
+  reference-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The starter is a submodule. Fetch only that one, because the
+      # repository holds other submodules this run doesn't need.
+      - name: Fetch the starter submodule
+        run: git -C materials submodule update --init -- "CMSC 125/Lecture/ps4/starter"
+        shell: bash
+
+      # The macOS setup section asks for the Command Line Tools and Python 3.9
+      # or newer. The installer is interactive, so the step checks its result
+      # instead: a compiler, make, Homebrew, and the Python floor.
+      - name: The manual's macOS setup holds
+        run: |
+          xcode-select -p
+          command -v clang && clang --version
+          command -v make && make --version
+          python3 --version
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'
+          brew --version
+        shell: bash
+
+      - name: Report the tools this run grades with
+        run: |
+          cc --version
+          make --version
+          python3 --version
+        shell: bash
+
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 125/Lecture/ps4/reference/verify.sh" "$RUNNER_TEMP/ps4-verify"
+        shell: bash

@@ -1,0 +1,89 @@
+# This workflow runs the CMSC 124 Problem Set 4 starter's own published
+# check.sh with the instructor reference overlaid. It expects a clean pass.
+#
+# The starter repository's own workflow run is red on purpose: it ships an
+# empty prediction table and seven unimplemented predicates, so it passes 1 of
+# its 66 checks. That says nothing about whether the assignment can be
+# finished. This workflow answers that question, and it lives here because
+# this is the only repository holding the solution.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-124-ps4-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+  schedule:
+    # Sundays, offset from the other reference runs so they do not start
+    # together. SWI-Prolog comes from apt, Homebrew, and the official Windows
+    # installer, so this run catches any of them changing under the assignment.
+    - cron: '35 21 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # This repository has many submodules and none of the others matter here.
+      - name: Fetch the pinned starter
+        run: git -C materials submodule update --init -- "CMSC 124/Lecture/ps-prolog/starter"
+
+      - name: Say which starter version is under test
+        run: git -C "materials/CMSC 124/Lecture/ps-prolog/starter" describe --tags --always
+
+      # The same installs the starter's own workflow uses.
+      - name: Install SWI-Prolog (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swi-prolog-nox
+
+      - name: Install SWI-Prolog (macOS)
+        if: runner.os == 'macOS'
+        run: brew install swi-prolog
+
+      # The same installer winget fetches for students, run without its
+      # dialog. It does not add itself to PATH, so the last line adds it.
+      - name: Install SWI-Prolog (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://www.swi-prolog.org/download/stable/bin/swipl-10.0.2-1.x64.exe"
+          curl.exe -sSL -o "$env:RUNNER_TEMP\swipl-setup.exe" $url
+          Start-Process -FilePath "$env:RUNNER_TEMP\swipl-setup.exe" -ArgumentList "/S" -Wait
+          "C:\Program Files\swipl\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Report the version this runner grades with
+        run: swipl --version
+        shell: bash
+
+      # verify.sh copies the starter to a temporary directory. It overlays
+      # reference/predictions.tsv, src/rules.pl, and ANALYSIS.md. Then it runs
+      # the starter's published check.sh against the copy. Expect 66/66.
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 124/Lecture/ps-prolog/reference/verify.sh"
+        shell: bash

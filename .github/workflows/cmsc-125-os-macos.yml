@@ -1,0 +1,343 @@
+# This workflow proves the CMSC 125 laboratories 1 to 4 can be done on native
+# macOS with the student install route in the starter's ABOUT.md. It installs
+# Homebrew's LLVM, LLD, and QEMU, then runs the commands the manuals print: the
+# starter builds and boots, the starter stage 1 cases fail to build as the
+# expected starting state, the reference passes stages 1 to 4, the Lab 2, Lab 3,
+# and Lab 4 case commands pass with their macOS compiler prefix, and the Lab 4
+# disk image is 10,240 bytes. The starter tree passes its documented
+# starting-state self-tests, and the reference passes all of its own. One extra
+# step proves a -mac target needs no LLVM PATH export.
+#
+# It runs on demand. A macOS runner is scarce. Dispatch this workflow to check
+# the native macOS route again, or after a Homebrew toolchain change.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-125-os-macos
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The starter is a submodule. Fetch only that one. The reference tree is
+      # a plain folder in the materials repository, so the checkout already
+      # holds it.
+      - name: Fetch the starter submodule
+        run: git -C materials submodule update --init -- "CMSC 125/Laboratory/os-starter"
+
+      - name: Install the toolchain
+        run: |
+          brew install llvm lld qemu
+          echo "BREW_PREFIX=$(brew --prefix)" >> "$GITHUB_ENV"
+
+      - name: Print the tool versions
+        run: |
+          sw_vers
+          uname -m
+          command -v bash; bash --version
+          command -v make; make --version
+          command -v clang; clang --version
+          echo "override compiler:"; "$BREW_PREFIX/opt/llvm/bin/clang" --version
+          # The lld formula links ld.lld into the Homebrew bin folder, not into
+          # the LLVM folder. Find it on the PATH that a -mac target exports.
+          mac_path="$BREW_PREFIX/opt/llvm/bin:$BREW_PREFIX/bin:$PATH"
+          PATH="$mac_path" command -v ld.lld
+          PATH="$mac_path" ld.lld --version
+          command -v qemu-system-riscv32; qemu-system-riscv32 --version
+          command -v python3; python3 --version
+
+      - name: The Lab 1 companion's compiler command works
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          # The Lab 1 companion prints one compile command, with
+          # $(brew --prefix llvm)/bin/clang in place of clang on macOS
+          # (cmsc-125-c-companion.md:26). Run it on a listing from that page,
+          # extracted from the page itself so the two cannot drift apart. The
+          # listing comes from the student-facing companion, so printing it
+          # shows no reference source.
+          companion="$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-c-companion.md"
+          python3 - "$companion" > listing.c <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8").read()
+          for block in re.finditer(r"```c\r?\n(.*?)```", text, re.S):
+              if "uint32_t field(" in block.group(1):
+                  sys.stdout.write(block.group(1).replace("\r\n", "\n"))
+                  break
+          else:
+              sys.exit("the companion holds no listing that defines field")
+          PY
+          echo "--- listing.c ---"
+          cat listing.c
+          "$(brew --prefix llvm)/bin/clang" -std=c11 -O2 -g3 -Wall -Wextra \
+                --target=riscv32-unknown-elf \
+                -fuse-ld=lld -fno-stack-protector -ffreestanding -nostdlib \
+                -I. -c listing.c
+          test -f listing.o
+          # The object targets RV32, so it cannot run on this host. Read its
+          # header back to prove the compiler built the target asked for, then
+          # prove the same compiler runs a native program.
+          "$(brew --prefix llvm)/bin/llvm-objdump" -f listing.o | grep -q 'elf32-littleriscv'
+          printf '#include <stdio.h>\nint main(void) { puts("the compiler runs"); return 0; }\n' > runtime.c
+          "$(brew --prefix llvm)/bin/clang" -std=c11 runtime.c -o runtime
+          ./runtime | grep -q 'the compiler runs'
+
+      - name: Check the bootcamp ISO URLs and published checksums
+        run: |
+          arm=https://cdimage.ubuntu.com/ubuntu/releases/24.04/release/ubuntu-24.04.5-live-server-arm64.iso
+          intel=https://releases.ubuntu.com/24.04/ubuntu-24.04.5-live-server-amd64.iso
+          curl --fail --location --head "$arm"
+          curl --fail --location --head "$intel"
+          curl --fail --location https://cdimage.ubuntu.com/ubuntu/releases/24.04/release/SHA256SUMS -o /tmp/ubuntu-arm-SHA256SUMS
+          curl --fail --location https://releases.ubuntu.com/24.04/SHA256SUMS -o /tmp/ubuntu-amd64-SHA256SUMS
+          grep -F 'f12484464c7d4d73e2167e0a7dbda1e669f8fae9bcf778dc0944937034b320cb *ubuntu-24.04.5-live-server-arm64.iso' /tmp/ubuntu-arm-SHA256SUMS
+          grep -F '97f3d7ffb032c3eb3b23d2c8be9cc76e60c2c1f2c0146ba5ba9fe01cafae0fd8 *ubuntu-24.04.5-live-server-amd64.iso' /tmp/ubuntu-amd64-SHA256SUMS
+
+      - name: A -mac target needs no LLVM PATH export
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          keg="$(brew --prefix)/opt/llvm/bin"
+          # A student's fresh shell has brew on PATH, but not the keg-only LLVM
+          # folder. Drop that folder and prove make build-mac still works.
+          export PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v -x -F "$keg" | paste -sd: -)"
+          echo "PATH=$PATH"
+          if command -v llvm-objcopy >/dev/null 2>&1; then
+            echo "note: llvm-objcopy is already on PATH without the LLVM folder" >&2
+          else
+            echo "llvm-objcopy needs the LLVM folder, as on a fresh shell"
+          fi
+          make build-mac
+
+      - name: Starter builds
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: make build-mac
+
+      - name: Starter boots and prints its banner
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          log=build/banner.log
+          : > "$log"
+          set -m
+          make run-mac </dev/null >"$log" 2>&1 &
+          pid=$!
+          ok=0
+          for _ in $(seq 1 150); do
+            if grep -q 'CMSC 125 operating system starter' "$log"; then ok=1; break; fi
+            sleep 0.1
+          done
+          kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          pkill -f qemu-system-riscv32 2>/dev/null || true
+          echo "--- starter serial log ---"
+          cat "$log"
+          [ "$ok" -eq 1 ]
+          grep -q 'CMSC 125 operating system starter' "$log"
+          grep -q 'build id' "$log"
+
+      - name: Starter controller self-tests pass
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          set +e
+          out="$(make test-harness-mac 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'self-tests: pass (36 checks)'
+
+      - name: Starter stage 1 case fails to build as expected
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          set +e
+          out="$(make test-mac STAGE=1 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 2 ]
+          printf '%s\n' "$out" | grep -q 'KTEST VERDICT case=stage1_process result=fail reason=build-failed'
+
+      - name: Reference passes stage 1
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: make test-mac STAGE=1
+
+      - name: Reference passes stage 2
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: make test-mac STAGE=2
+
+      - name: Reference passes stage 3
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: make test-mac STAGE=3
+
+      - name: The disk image is large enough for both file slots
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          # The kernel reads and writes six 512-byte sectors: two slots of a
+          # 512-byte header and 1,024 bytes of data. BSD tar, the tar macOS
+          # provides, writes only the records the files need, so an unpadded
+          # one-file image is 2,048 bytes. The kernel then refuses every write
+          # past sector 3 and the second file never reaches the disk. Fail here,
+          # with the size named, rather than three boots later inside a case.
+          make test-disk-mac
+          size=$(wc -c < build/test-disk.tar)
+          echo "build/test-disk.tar is $size bytes"
+          [ "$size" -ge 3072 ]
+
+      - name: The Lab 4 disk image is 10,240 bytes
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          # The Lab 4 manual prints make disk-mac in its six-command block
+          # (cmsc-125-lab4.md:179). Run it as printed and read the size back.
+          make disk-mac
+          size=$(wc -c < build/disk.tar)
+          echo "build/disk.tar is $size bytes"
+          [ "$size" -eq 10240 ]
+
+      - name: The Lab 1 case command passes with its macOS prefix
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          # The Lab 1 manual prints this command at cmsc-125-lab1.md:332 and
+          # the CC prefix at :165. The case is the listing the manual has the
+          # student save as tests/cases/order.c, so extract it from the page.
+          python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-lab1.md" > tests/cases/order.c <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8").read()
+          for block in re.finditer(r"```c\r?\n(.*?)```", text, re.S):
+              if 'ktest_begin("order")' in block.group(1):
+                  sys.stdout.write(block.group(1).replace("\r\n", "\n"))
+                  break
+          else:
+              sys.exit("the Lab 1 manual holds no order listing")
+          PY
+          set +e
+          out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case order --source tests/cases/order.c --assertions 3 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: The Lab 2 case command passes with its macOS prefix
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          # The Lab 2 manual prints this command at cmsc-125-lab2.md:315 and
+          # the CC prefix at :318. The case is the listing the manual has the
+          # student save as tests/cases/flags.c, so extract it from the page.
+          python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab2/cmsc-125-lab2.md" > tests/cases/flags.c <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8").read()
+          for block in re.finditer(r"```c\r?\n(.*?)```", text, re.S):
+              if 'ktest_begin("flags")' in block.group(1):
+                  sys.stdout.write(block.group(1).replace("\r\n", "\n"))
+                  break
+          else:
+              sys.exit("the Lab 2 manual holds no flags listing")
+          PY
+          set +e
+          out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case flags --source tests/cases/flags.c --assertions 3 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: The Lab 3 case command passes with its macOS prefix
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          # The Lab 3 manual prints this command at cmsc-125-lab3.md:357-358
+          # and the CC prefix at :365.
+          set +e
+          out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case stage3_user_app --source tests/cases/stage3_user_app.c --assertions 4 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: The Lab 4 case command passes with its macOS prefix
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          # The Lab 4 manual prints this command at cmsc-125-lab4.md:461 and
+          # the CC prefix at :464.
+          set +e
+          out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case stage4_persistence --source tests/cases/stage4_persistence.c --assertions 3 --boots 2 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: Reference passes stage 4
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: make test-mac STAGE=4
+
+      # The serial log holds one KTEST ASSERT line per assertion, and each line
+      # carries the assertion expression from the reference case. Print the
+      # case name and the pass or fail result only.
+      - name: Show stage 4 create-file serial logs
+        if: always()
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          for log in build/logs/stage4_create_file.boot*.serial.log; do
+            [ -f "$log" ] || continue
+            echo "--- $log ---"
+            grep -E '^KTEST (BEGIN|END) ' "$log" || true
+          done
+
+      - name: Reference controller self-tests pass
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          set +e
+          out="$(make test-harness-mac 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'self-tests: pass (43 checks)'
+
+      - name: Shared files are in sync
+        run: |
+          set +e
+          out="$(bash "materials/CMSC 125/Laboratory/os-reference/verify-sync.sh" 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'shared files: in sync'
+
+      - name: No QEMU process is left
+        if: always()
+        run: |
+          if pgrep -l qemu; then
+            echo "a QEMU process is still running" >&2
+            exit 1
+          fi
+          echo "no QEMU process is left"

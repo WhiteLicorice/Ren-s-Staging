@@ -1,0 +1,123 @@
+# This workflow runs the CMSC 125 Problem Set 1 public corpus with the
+# instructor reference overlaid. It expects a clean pass.
+#
+# The starter repository has its own workflow, and that run is red on purpose:
+# the starter ships four unimplemented files, so it passes 8 of its 57 cases.
+# That number says nothing about whether the assignment can be finished. This
+# workflow answers that question, and it lives here because this is the only
+# repository holding the solution.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-125-ps1-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # The Ubuntu gate runs on demand.
+  reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The starter is a submodule. Fetch only that one, because the
+      # repository holds other submodules this run doesn't need.
+      - name: Fetch the starter submodule
+        run: git -C materials submodule update --init -- "CMSC 125/Lecture/ps1/starter"
+        shell: bash
+
+      # The controller uses fork, kill, waitpid, sigaction, and the
+      # CLOCK_MONOTONIC clock. Every one of those is POSIX, so the run answers
+      # for Linux and for macOS alike.
+      - name: Report the tools this run grades with
+        run: |
+          cc --version
+          make --version
+          python3 --version
+        shell: bash
+
+      # verify.sh copies the starter to a temporary directory. It overlays
+      # reference/src/*.c, runs the starter's own check.sh, and then runs four
+      # private checks. Expect 57/57 cases and exit 0. The fork-failure check
+      # needs LD_PRELOAD, so it reports a skip where the loader ignores it.
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 125/Lecture/ps1/reference/verify.sh"
+        shell: bash
+
+  # The macOS route from the manual runs on demand only, because a macOS
+  # runner costs more than an Ubuntu runner.
+  reference-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The starter is a submodule. Fetch only that one, because the
+      # repository holds other submodules this run doesn't need.
+      - name: Fetch the starter submodule
+        run: git -C materials submodule update --init -- "CMSC 125/Lecture/ps1/starter"
+        shell: bash
+
+      # The macOS setup section prints xcode-select --install and
+      # python3 --version (cmsc-125-ps1.md:522, :525-530), and it installs
+      # Python with Homebrew only when the version is older than 3.9. The
+      # installer is interactive, so the step checks its result instead: a
+      # compiler, make, and the Python floor the manual names. A runner
+      # carries full Xcode where a student Mac carries the Command Line
+      # Tools, so the check reads the tools the manual promises, not the
+      # folder they sit in.
+      - name: The manual's macOS setup holds
+        run: |
+          xcode-select -p
+          command -v clang && clang --version
+          command -v make && make --version
+          python3 --version
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'
+        shell: bash
+
+      # The controller uses fork, kill, waitpid, sigaction, and the
+      # CLOCK_MONOTONIC clock. Every one of those is POSIX, so the run answers
+      # for Linux and for macOS alike.
+      - name: Report the tools this run grades with
+        run: |
+          cc --version
+          make --version
+          python3 --version
+        shell: bash
+
+      # verify.sh copies the starter to a temporary directory. It overlays
+      # reference/src/*.c, runs the starter's own check.sh, and then runs four
+      # private checks. Expect 57/57 cases and exit 0. The fork-failure check
+      # needs LD_PRELOAD, so it reports a skip where the loader ignores it.
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 125/Lecture/ps1/reference/verify.sh"
+        shell: bash

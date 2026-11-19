@@ -1,0 +1,76 @@
+# This workflow runs the CMSC 124 Problem Set 3 starter's own published
+# check.sh with the instructor reference overlaid. It expects a clean pass.
+#
+# The starter repository's own workflow run is red on purpose: it ships an
+# empty prediction table and eight unimplemented functions, so it passes 1 of
+# its 90 checks. That says nothing about whether the assignment can be
+# finished. This workflow answers that question, and it lives here because
+# this is the only repository holding the solution.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-124-ps3-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+  schedule:
+    # Sundays, offset from the ps1 and ps2 reference runs so the three do not
+    # start together. CLISP comes from apt and Homebrew, so this run catches
+    # either package changing under the assignment.
+    - cron: '9 21 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # This repository has many submodules and none of the others matter here.
+      - name: Fetch the pinned starter
+        run: git -C materials submodule update --init -- "CMSC 124/Lecture/ps-clisp/starter"
+
+      - name: Say which starter version is under test
+        run: git -C "materials/CMSC 124/Lecture/ps-clisp/starter" describe --tags --always
+
+      # The same installs the starter's own workflow uses.
+      - name: Install CLISP (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clisp
+
+      - name: Install CLISP (macOS)
+        if: runner.os == 'macOS'
+        run: brew install clisp
+
+      - name: Report the version this runner grades with
+        run: clisp --version
+
+      # verify.sh copies the starter to a temporary directory, overlays
+      # reference/predictions.tsv, src/evaluator.lisp, and ANALYSIS.md, then
+      # runs the starter's published check.sh against it. Expect 90/90.
+      - name: Run the published checks with the solution overlaid
+        run: bash "materials/CMSC 124/Lecture/ps-clisp/reference/verify.sh"

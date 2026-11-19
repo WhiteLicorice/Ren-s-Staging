@@ -1,0 +1,325 @@
+name: cmsc-127-platform-validation
+
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHON_VERSION: 3.15.2
+      PYTHON_PKG: python-3.15.2-macos11.pkg
+      NODE_VERSION: 26.13.1
+      PYRIGHT_VERSION: 1.1.414
+      PG_VERSION: 18
+
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch the harness submodule
+        run: |
+          set -euo pipefail
+          git -C materials submodule update --init -- "CMSC 127/Laboratory/harness"
+
+      - name: Record the runner
+        run: |
+          set -euo pipefail
+          EVIDENCE="$RUNNER_TEMP/evidence"
+          mkdir -p "$EVIDENCE"
+          printf 'EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
+          exec > >(tee "$EVIDENCE/inventory.txt") 2>&1
+          date -u
+          uname -a
+          printf 'image=%s version=%s\n' "$ImageOS" "$ImageVersion"
+          printf 'workflow_commit=%s source_commit=%s\n' "$GITHUB_SHA" "$(git -C materials rev-parse HEAD)"
+          printf 'run=%s/attempts/%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          printf 'run_url=%s/%s/actions/runs/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+          command -v curl git python3 node npm psql || true
+          git --version
+          python3 --version || true
+          node --version || true
+          if [ "$RUNNER_OS" = macOS ]; then
+            sw_vers
+            xcode-select -p
+            brew --version
+          else
+            cat /etc/os-release
+          fi
+
+      - name: Install Python 3.15.2
+        # The manual prints this route per platform.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/python.txt") 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            curl --fail --location --retry 3 \
+              "https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_PKG}" \
+              -o "$RUNNER_TEMP/$PYTHON_PKG"
+            sudo installer -pkg "$RUNNER_TEMP/$PYTHON_PKG" -target /
+            command -v "python${PYTHON_VERSION%.*}"
+          else
+            sudo apt-get install -y --no-install-recommends ca-certificates curl
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.local/bin:$PATH"
+            uv python install "${PYTHON_VERSION}"
+            printf 'PATH=%s/.local/bin:%s\n' "$HOME" "$PATH" >> "$GITHUB_ENV"
+          fi
+          "python${PYTHON_VERSION%.*}" --version | tee "$EVIDENCE/python-version.txt"
+          test "$("python${PYTHON_VERSION%.*}" --version)" = "Python ${PYTHON_VERSION}"
+
+      - name: Install PostgreSQL 18.6
+        # macOS uses Homebrew. Linux uses the PGDG apt repository.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/postgresql.txt") 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install "postgresql@${PG_VERSION}"
+            printf 'PATH=%s/bin:%s\n' "$(brew --prefix "postgresql@${PG_VERSION}")" "$PATH" >> "$GITHUB_ENV"
+            brew services start "postgresql@${PG_VERSION}"
+            export PATH="$(brew --prefix "postgresql@${PG_VERSION}")/bin:$PATH"
+            for _ in $(seq 1 60); do pg_isready -h 127.0.0.1 -p 5432 && break; sleep 2; done
+            pg_isready -h 127.0.0.1 -p 5432
+            psql -d postgres -c 'SELECT version();'
+            printf 'CMSC127_DATABASE_URL=postgresql://%s@127.0.0.1:5432/postgres\n' "$(whoami)" >> "$GITHUB_ENV"
+          else
+            sudo apt-get install -y --no-install-recommends postgresql-common ca-certificates curl
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
+              https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            . /etc/os-release
+            sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: ${VERSION_CODENAME}-pgdg
+          Architectures: $(dpkg --print-architecture)
+          Components: main
+          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          EOF
+            sudo apt-get update
+            sudo apt-get install -y "postgresql-${PG_VERSION}"
+            printf 'PATH=/usr/lib/postgresql/%s/bin:%s\n' "${PG_VERSION}" "$PATH" >> "$GITHUB_ENV"
+            export PATH="/usr/lib/postgresql/${PG_VERSION}/bin:$PATH"
+            if sudo pg_lsclusters -h | grep -q "^${PG_VERSION} main "; then
+              sudo pg_ctlcluster "${PG_VERSION}" main start
+            else
+              sudo pg_createcluster "${PG_VERSION}" main --start
+            fi
+            pg_port="$(sudo pg_lsclusters -h | awk -v v="${PG_VERSION}" '$1 == v && $2 == "main" { print $3 }')"
+            pg_port="${pg_port:-5432}"
+            printf 'cluster_port=%s\n' "$pg_port"
+            sudo -u postgres psql -p "$pg_port" -c "ALTER ROLE postgres PASSWORD 'password';"
+            export PGPASSWORD=password
+            for _ in $(seq 1 60); do pg_isready -h 127.0.0.1 -p "$pg_port" && break; sleep 2; done
+            pg_isready -h 127.0.0.1 -p "$pg_port"
+            psql -h 127.0.0.1 -p "$pg_port" -U postgres -d postgres -c 'SELECT version();'
+            printf 'CMSC127_DATABASE_URL=postgresql://postgres:password@127.0.0.1:%s/postgres\n' "$pg_port" >> "$GITHUB_ENV"
+          fi
+          psql --version | tee "$EVIDENCE/postgresql-version.txt"
+
+      - name: Install Node.js 26
+        # The vendor route installs npm with Node.js, and the harness build needs it.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/node.txt") 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install node
+            export PATH="$(brew --prefix node)/bin:$PATH"
+            printf 'PATH=%s\n' "$PATH" >> "$GITHUB_ENV"
+          else
+            curl --fail --location --retry 3 \
+              "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+              -o "$RUNNER_TEMP/node.tar.xz"
+            sudo tar -xJf "$RUNNER_TEMP/node.tar.xz" -C /opt
+            export PATH="/opt/node-v${NODE_VERSION}-linux-x64/bin:$PATH"
+            printf 'PATH=%s\n' "$PATH" >> "$GITHUB_ENV"
+            hash -r
+          fi
+          node --version
+          npm --version
+          node --version | grep -Eq "^v${NODE_VERSION%%.*}\."
+
+      - name: Set the Git identity
+        # The manual tells the student to use their own name and email. The
+        # checker only asks that both are set.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/git.txt") 2>&1
+          git config --global user.name 'CMSC 127 Student'
+          git config --global user.email 'student@example.invalid'
+          git config --global --get user.name
+          git config --global --get user.email
+
+      - name: Build the harness and the b1 bundle
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/bundle.txt") 2>&1
+          export PATH="$HOME/.local/bin:$PATH"
+          harness="$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/harness"
+          npm ci --prefix "$harness"
+          npm run build --prefix "$harness"
+          cd "$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory"
+          bash make-bootcamp-bundles.sh
+
+      - name: Create the environment and install the requirements
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/venv.txt") 2>&1
+          export PATH="$HOME/.local/bin:$PATH"
+          cd "$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/b1/dist/bundle"
+          "python${PYTHON_VERSION%.*}" -m venv .venv
+          # This is the activation line the manual prints for macOS and Linux.
+          source .venv/bin/activate
+          python --version
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -c 'import psycopg; print("psycopg", psycopg.__version__)'
+          pyright --version
+          test "$(pyright --version | awk '{print $2}')" = "$PYRIGHT_VERSION"
+
+      - name: Run the doctor
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/doctor.txt") 2>&1
+          cd "$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/b1/dist/bundle"
+          source .venv/bin/activate
+          bash doctor.sh
+
+      - name: Prove that the Lab 3 role checks can create and remove roles
+        # The Lab 3 checks create and remove their own roles. This step proves
+        # that the connection the b1 checker uses may do that.
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/lab3/reference"
+          bash roles_probe.sh
+
+      - name: Do the student's typing fix
+        # Part 7 of the manual asks the student to change the text value to an
+        # integer. The checker fails until this is done.
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/b1/dist/bundle"
+          "python${PYTHON_VERSION%.*}" - <<'PY'
+          from pathlib import Path
+
+          path = Path("b1_typing.py")
+          fixed = path.read_text(encoding="utf-8").replace('score: int = "one"', "score: int = 1")
+          path.write_text(fixed, encoding="utf-8")
+          PY
+          cat b1_typing.py
+
+      - name: Run the b1 checker without an editor
+        # Any editor works, so the checker must pass with a warning when
+        # Visual Studio Code is absent. This also catches a `code` command that
+        # belongs to another program.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/check-no-editor.txt") 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            node_shadow="$RUNNER_TEMP/node-shadow"
+            mkdir -p "$node_shadow"
+            printf '%s\n' '#!/bin/sh' 'exit 127' > "$node_shadow/node"
+            chmod +x "$node_shadow/node"
+            export PATH="$node_shadow:$PATH"
+            node_path="$(command -v node)"
+            if [ "$node_path" != "$node_shadow/node" ]; then
+              echo "global node remains on PATH: $node_path" >&2
+              exit 1
+            fi
+            printf 'node resolves to shadow: %s\n' "$node_path"
+            if node --version >/dev/null 2>&1; then
+              echo "Node.js ran despite the shadow" >&2
+              exit 1
+            else
+              test "$?" -eq 127
+            fi
+          fi
+          cd "$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/b1/dist/bundle"
+          source .venv/bin/activate
+          bash b1_check.sh
+          grep -Fx '16 of 16 steps complete' "$EVIDENCE/check-no-editor.txt"
+          grep -F 'warn' "$EVIDENCE/check-no-editor.txt"
+
+      - name: Install the editor
+        # The manual suggests Visual Studio Code. The checker still passes
+        # without it, and this step proves the suggested route works.
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/editor.txt") 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install --cask visual-studio-code
+          else
+            curl --fail --location --retry 3 \
+              'https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64' \
+              -o "$RUNNER_TEMP/code.deb"
+            sudo apt-get install -y "$RUNNER_TEMP/code.deb"
+          fi
+          code --version
+
+      - name: Run the b1 checker with the editor installed
+        run: |
+          set -euo pipefail
+          exec > >(tee "$EVIDENCE/check-editor.txt") 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            node_shadow="$RUNNER_TEMP/node-shadow"
+            mkdir -p "$node_shadow"
+            printf '%s\n' '#!/bin/sh' 'exit 127' > "$node_shadow/node"
+            chmod +x "$node_shadow/node"
+            export PATH="$node_shadow:$PATH"
+            node_path="$(command -v node)"
+            if [ "$node_path" != "$node_shadow/node" ]; then
+              echo "global node remains on PATH: $node_path" >&2
+              exit 1
+            fi
+            printf 'node resolves to shadow: %s\n' "$node_path"
+            if node --version >/dev/null 2>&1; then
+              echo "Node.js ran despite the shadow" >&2
+              exit 1
+            else
+              test "$?" -eq 127
+            fi
+          fi
+          cd "$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/b1/dist/bundle"
+          source .venv/bin/activate
+          bash b1_check.sh
+          grep -Fx '16 of 16 steps complete' "$EVIDENCE/check-editor.txt"
+          grep -Fx '  ok    An editor is available' "$EVIDENCE/check-editor.txt"
+
+      # The evidence holds platform logs only: the runner inventory, the
+      # installer transcripts, the harness build, the doctor, and the two
+      # checker runs. It holds no reference source and no key. The short
+      # retention keeps a public artifact from outliving its use.
+      - name: Retain the evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cmsc127-platform-${{ matrix.image }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 3

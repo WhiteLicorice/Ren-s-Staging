@@ -1,0 +1,148 @@
+name: cmsc-127-lab-reference
+
+# Dispatch only. The orchestrator runs this workflow once before it closes a task, so pushes and a
+# schedule don't spend the private Actions quota.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      PG_VERSION: '18'
+
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch the harness and starter submodules
+        run: |
+          set -euo pipefail
+          git -C materials submodule update --init -- \
+            "CMSC 127/Laboratory/harness" \
+            "CMSC 127/Laboratory/starter"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: 3.15.2
+
+      - name: Install the harness Python requirements
+        run: |
+          set -euo pipefail
+          harness="$GITHUB_WORKSPACE/materials/CMSC 127/Laboratory/harness"
+          python -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check -r "$harness/requirements.txt"
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install PostgreSQL 18 on Ubuntu
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends postgresql-common ca-certificates curl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --retry 3 --retry-all-errors -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: ${VERSION_CODENAME}-pgdg
+          Architectures: $(dpkg --print-architecture)
+          Components: main
+          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          EOF
+          sudo apt-get update
+          sudo apt-get install -y "postgresql-${PG_VERSION}"
+
+          if ! sudo pg_lsclusters -h | grep -q "^${PG_VERSION} main "; then
+            sudo pg_createcluster "${PG_VERSION}" main
+          fi
+          sudo pg_ctlcluster "${PG_VERSION}" main stop || true
+          sudo tee -a "/etc/postgresql/${PG_VERSION}/main/postgresql.conf" >/dev/null <<'PGCONF'
+          listen_addresses = '127.0.0.1'
+          PGCONF
+          if ! sudo pg_ctlcluster "${PG_VERSION}" main start; then
+            sudo tail -n 80 "/var/log/postgresql/postgresql-${PG_VERSION}-main.log" || true
+            exit 1
+          fi
+
+          pg_bin="/usr/lib/postgresql/${PG_VERSION}/bin"
+          pg_port="$(sudo pg_lsclusters -h | awk -v version="$PG_VERSION" '$1 == version && $2 == "main" { print $3 }')"
+          test -n "$pg_port"
+          sudo -u postgres psql -p "$pg_port" -c "ALTER ROLE postgres PASSWORD 'password';"
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          printf 'PG_BIN=%s\nPGHOST=127.0.0.1\nPGPORT=%s\nPGUSER=postgres\nPGPASSWORD=password\nCMSC127_DATABASE_URL=postgresql://postgres:password@127.0.0.1:%s/postgres\n' \
+            "$pg_bin" "$pg_port" "$pg_port" >> "$GITHUB_ENV"
+          export PATH="$pg_bin:$PATH" PGPASSWORD=password
+          for _ in $(seq 1 60); do
+            pg_isready -h 127.0.0.1 -p "$pg_port" && break
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p "$pg_port"
+          psql -h 127.0.0.1 -p "$pg_port" -U postgres -d postgres -c 'SELECT version();'
+
+      - name: Install PostgreSQL 18 on macOS
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install "postgresql@${PG_VERSION}"
+          pg_bin="$(brew --prefix "postgresql@${PG_VERSION}")/bin"
+          pg_data="$(brew --prefix)/var/postgresql@${PG_VERSION}"
+          pg_user="$(whoami)"
+          brew services stop "postgresql@${PG_VERSION}" >/dev/null 2>&1 || true
+          if [[ ! -s "$pg_data/PG_VERSION" ]]; then
+            mkdir -p "$(dirname "$pg_data")"
+            "$pg_bin/initdb" -D "$pg_data" -U "$pg_user" --auth-local=trust --auth-host=scram-sha-256
+          fi
+          printf "\nlisten_addresses = '127.0.0.1'\n" >> "$pg_data/postgresql.conf"
+          brew services start "postgresql@${PG_VERSION}"
+
+          export PATH="$pg_bin:$PATH" PGPASSWORD=password
+          for _ in $(seq 1 60); do
+            pg_isready -h 127.0.0.1 -p 5432 && break
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+          psql -U "$pg_user" -d postgres -c "ALTER ROLE \"$pg_user\" PASSWORD 'password';"
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          printf 'PG_BIN=%s\nPGHOST=127.0.0.1\nPGPORT=5432\nPGUSER=%s\nPGPASSWORD=password\nCMSC127_DATABASE_URL=postgresql://%s:password@127.0.0.1:5432/postgres\n' \
+            "$pg_bin" "$pg_user" "$pg_user" >> "$GITHUB_ENV"
+          psql -h 127.0.0.1 -p 5432 -U "$pg_user" -d postgres -c 'SELECT version();'
+
+      - name: Run the Lab 1 reference verifier
+        run: bash "materials/CMSC 127/Laboratory/lab1/reference/verify.sh"
+
+      - name: Run the Lab 2 reference verifier
+        run: bash "materials/CMSC 127/Laboratory/lab2/reference/verify.sh"
+
+      - name: Run the Lab 3 reference verifier
+        run: bash "materials/CMSC 127/Laboratory/lab3/reference/verify.sh"

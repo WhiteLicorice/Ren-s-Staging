@@ -1,0 +1,149 @@
+name: poll
+
+# The old push triggers are gone. This workflow replaces them. Once an hour it
+# reads the Ren-s-Materials head with the deploy key and dispatches only the
+# suites whose old push paths changed since the head they last passed on.
+#
+# The last tested head is kept in this repository's own run history. A suite's
+# watermark is the start time of its newest run that is not a failure. A queued
+# or running suite counts, so a second poll does not dispatch it again. A
+# failed suite does not count, so the next poll tries it again.
+on:
+  schedule:
+    # Minute 17 is not 0 and not 30, so this run does not start with the
+    # hourly crowd.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two polls must not dispatch the same suite twice. A pending run replaces an
+# older pending one, so only the newest queued poll survives. A running poll is
+# not cancelled.
+concurrency:
+  group: poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the suites whose paths changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MATERIALS_DEPLOY_KEY: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+
+          # The key goes to a file that only this user can read. Nothing prints
+          # it, and nothing prints the checkout's .git config.
+          key="$RUNNER_TEMP/materials-key"
+          printf '%s\n' "$MATERIALS_DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+          # The eight suites that used to run on a push. The other four run on
+          # demand only, so this poll never dispatches them.
+          suites="cmsc-124-ps1-reference cmsc-124-ps2-reference cmsc-124-ps3-reference cmsc-124-ps4-reference cmsc-125-ps1-reference cmsc-125-ps2-reference cmsc-125-ps3-reference cmsc-125-ps4-reference"
+
+          # The paths each suite's old push trigger watched. A trailing slash
+          # stands for the glob the old trigger wrote as '/**'.
+          matches() {
+            case "$1" in
+              cmsc-124-ps1-reference)
+                case "$2" in
+                  "CMSC 124/Lecture/ps-data-types/starter"|"CMSC 124/Lecture/ps-data-types/reference/"*|".github/workflows/cmsc-124-ps1-reference.yml") return 0 ;;
+                esac ;;
+              cmsc-124-ps2-reference)
+                case "$2" in
+                  "CMSC 124/Lecture/ps-r/starter"|"CMSC 124/Lecture/ps-r/reference/"*|".github/workflows/cmsc-124-ps2-reference.yml") return 0 ;;
+                esac ;;
+              cmsc-124-ps3-reference)
+                case "$2" in
+                  "CMSC 124/Lecture/ps-clisp/starter"|"CMSC 124/Lecture/ps-clisp/reference/"*|".github/workflows/cmsc-124-ps3-reference.yml") return 0 ;;
+                esac ;;
+              cmsc-124-ps4-reference)
+                case "$2" in
+                  "CMSC 124/Lecture/ps-prolog/starter"|"CMSC 124/Lecture/ps-prolog/reference/"*|".github/workflows/cmsc-124-ps4-reference.yml") return 0 ;;
+                esac ;;
+              cmsc-125-ps1-reference)
+                case "$2" in
+                  "CMSC 125/Lecture/ps1/"*|".github/workflows/cmsc-125-ps1-reference.yml") return 0 ;;
+                esac ;;
+              cmsc-125-ps2-reference)
+                case "$2" in
+                  "CMSC 125/Lecture/ps2/"*|".github/workflows/cmsc-125-ps2-reference.yml") return 0 ;;
+                esac ;;
+              cmsc-125-ps3-reference)
+                case "$2" in
+                  "CMSC 125/Lecture/ps3/"*|".github/workflows/cmsc-125-ps3-reference.yml") return 0 ;;
+                esac ;;
+              cmsc-125-ps4-reference)
+                case "$2" in
+                  "CMSC 125/Lecture/ps4/"*|".github/workflows/cmsc-125-ps4-reference.yml") return 0 ;;
+                esac ;;
+            esac
+            return 1
+          }
+
+          # Read each suite's watermark from this repository's run history.
+          marks="$RUNNER_TEMP/watermarks.txt"
+          : > "$marks"
+          for suite in $suites; do
+            mark="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$suite.yml/runs?per_page=30" \
+              --jq '[.workflow_runs[] | select((.status != "completed") or (.conclusion == "success"))][0].run_started_at // "none"')"
+            printf '%s %s\n' "$suite" "$mark" >> "$marks"
+          done
+          cat "$marks"
+
+          # Fetch the materials history back to the oldest watermark. A suite
+          # that never ran leaves no watermark, so the fetch falls back to the
+          # head commit alone and every suite is dispatched.
+          oldest="$(awk '$2 != "none" { print $2 }' "$marks" | sort | head -1)"
+          repo="$RUNNER_TEMP/materials"
+          git init --quiet "$repo"
+          git -C "$repo" remote add origin git@github.com:WhiteLicorice/Ren-s-Materials.git
+          if [ -n "$oldest" ]; then
+            git -C "$repo" fetch --quiet --no-tags --shallow-since="$oldest" origin master
+          else
+            git -C "$repo" fetch --quiet --no-tags --depth 1 origin master
+          fi
+          head="$(git -C "$repo" rev-parse FETCH_HEAD)"
+          echo "materials head $head"
+
+          dispatch() {
+            echo "dispatch $1 at $head"
+            gh workflow run "$1.yml" -R "$GITHUB_REPOSITORY" -f ref="$head"
+          }
+
+          while read -r suite mark; do
+            if [ "$mark" = "none" ]; then
+              dispatch "$suite"
+              continue
+            fi
+            base="$(git -C "$repo" rev-list -1 --before="$mark" FETCH_HEAD || true)"
+            if [ -z "$base" ]; then
+              dispatch "$suite"
+              continue
+            fi
+            if [ "$base" = "$head" ]; then
+              echo "skip $suite, it passed on $head"
+              continue
+            fi
+            hit=0
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+              if matches "$suite" "$path"; then
+                hit=1
+                break
+              fi
+            done <<< "$(git -C "$repo" diff --name-only "$base" "$head")"
+            if [ "$hit" -eq 1 ]; then
+              dispatch "$suite"
+            else
+              echo "skip $suite, no watched path changed"
+            fi
+          done < "$marks"
