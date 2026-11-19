@@ -59,7 +59,7 @@ jobs:
           mkdir -p "$EVIDENCE"
           printf 'EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
           printf 'RUN_DIR=%s\n' "$RUNNER_TEMP/editor-replay" >> "$GITHUB_ENV"
-          exec > >(tee "$EVIDENCE/inventory.txt") 2>&1
+          exec > >(tee "$EVIDENCE/inventory.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           date -u
           uname -a
           printf 'image=%s version=%s\n' "$ImageOS" "$ImageVersion"
@@ -83,7 +83,7 @@ jobs:
       - name: Install the pinned standard editor and templates
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/setup.txt") 2>&1
+          exec > >(tee "$EVIDENCE/setup.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           tools="$RUNNER_TEMP/godot"
           mkdir -p "$tools"
           cd "$tools"
@@ -143,7 +143,7 @@ jobs:
         # the project settings and the asset set on a fresh machine.
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/starters.txt") 2>&1
+          exec > >(tee "$EVIDENCE/starters.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           root="$GITHUB_WORKSPACE/materials/CMSC 197 (Game Design and Development)/Laboratory"
           for game in breakout mega-man crimsonland; do
             project="$root/$game-starter"
@@ -165,6 +165,7 @@ jobs:
       - name: Import and check the saved reference state
         # The reference state includes the Step 12 typed line.
         run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           set -euo pipefail
           project="$RUNNER_TEMP/project"
           cp -R "$PROOF/reference" "$project"
@@ -183,7 +184,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb xdotool scrot openbox xterm x11-utils
 
       - name: Check the diagnostic probes
-        run: python3 "$REPLAY/probes.py"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          python3 "$REPLAY/probes.py"
 
       - name: Set the macOS display to 1920 by 1080
         # The trial client is 1440 by 878. The runner's default 1024 by 768
@@ -191,7 +194,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/display.txt") 2>&1
+          exec > >(tee "$EVIDENCE/display.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           brew install cliclick displayplacer
           id="$(displayplacer list | awk -F': ' '/Persistent screen id/{print $2; exit}')"
           printf 'display_id=%s\n' "$id"
@@ -202,7 +205,7 @@ jobs:
       - name: Replay the manual, Steps 1 to 19
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/replay-steps-1-19.txt") 2>&1
+          exec > >(tee "$EVIDENCE/replay-steps-1-19.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           python3 "$REPLAY/drive.py" session-start \
             --run-dir "$RUN_DIR" \
             --engine "$ENGINE" \
@@ -213,21 +216,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/replay-steps-20-22.txt") 2>&1
+          exec > >(tee "$EVIDENCE/replay-steps-20-22.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 20 --end 22
 
       - name: Replay the manual, Steps 20 and 21
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/replay-steps-20-21.txt") 2>&1
+          exec > >(tee "$EVIDENCE/replay-steps-20-21.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 20 --end 21
 
       - name: Record Step 22 as unsupported on macOS
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/replay-step-22.txt") 2>&1
+          exec > >(tee "$EVIDENCE/replay-step-22.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           python3 "$REPLAY/drive.py" record-unsupported --run-dir "$RUN_DIR" \
             --step 22 \
             --reason "the exported build is a Linux x86_64 ELF, and macOS cannot execute it"
@@ -235,6 +238,7 @@ jobs:
       - name: Export the macOS extra build
         if: runner.os == 'macOS'
         run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           set -euo pipefail
           python3 "$REPLAY/drive.py" extra-macos \
             --run-dir "$RUN_DIR" \
@@ -244,7 +248,7 @@ jobs:
       - name: Verify the replay evidence
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/verify.txt") 2>&1
+          exec > >(tee "$EVIDENCE/verify.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           if [ "$RUNNER_OS" = Linux ]; then
             python3 "$REPLAY/verify.py" --run-dir "$RUN_DIR" --mode pass
           else
@@ -261,7 +265,7 @@ jobs:
         # it into a temporary starter copy. It never edits the starter.
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/publication-export.txt") 2>&1
+          exec > >(tee "$EVIDENCE/publication-export.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           root="$GITHUB_WORKSPACE/materials/CMSC 197 (Game Design and Development)/Laboratory"
           fixture="$RUNNER_TEMP/publication"
           dist="$RUNNER_TEMP/dist"
@@ -383,7 +387,7 @@ jobs:
         # but cannot run on this runner, so their runtime evidence stays open.
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/publication-run.txt") 2>&1
+          exec > >(tee "$EVIDENCE/publication-run.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           dist="$RUNNER_TEMP/dist"
           short="$(git -C "$GITHUB_WORKSPACE/materials" rev-parse --short=12 HEAD)"
           expected="0.1.0+$short"
@@ -411,7 +415,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          exec > >(tee "$EVIDENCE/ios-simulator.txt") 2>&1
+          exec > >(tee "$EVIDENCE/ios-simulator.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           dist="$RUNNER_TEMP/dist"
           short="$(git -C "$GITHUB_WORKSPACE/materials" rev-parse --short=12 HEAD)"
           expected="0.1.0+$short"
@@ -475,3 +479,68 @@ jobs:
           name: cmsc197-t01-${{ matrix.image }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/editor-replay/evidence/
           retention-days: 3
+
+      - name: Report the result
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TESTED_REF: ${{ inputs.ref || 'master' }}
+          JOB_NAME: ${{ github.job }}
+          MATRIX_ENTRY: ${{ toJSON(matrix) }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          full="$RUNNER_TEMP/full-output.txt"
+
+          # The public log prints the case names and the pass or fail results.
+          # The full output stays in the file and goes to the private issue.
+          if [ -f "$full" ]; then
+            grep -E '^\[(PASS|FAIL)\]|^[0-9]+/[0-9]+ |^result: |^KTEST VERDICT |^  (ok|fail|warn) |^checks: |^(PASS|FAIL) |^All published checks passed|^verify\.sh: |^self-tests: pass|^shared files: in sync|^no QEMU process is left|^starter .* ok|^exported |^verify: PASS|^Lab [0-9] count|^All Lab [0-9] checks passed|^Group Lab|^[0-9]+ of [0-9]+ steps complete|^Some checks in cases failed|^the reference state imported|^CMSC197_' "$full" || true
+          fi
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "MATERIALS_ISSUES_TOKEN is empty. The issue report is skipped."
+            exit 0
+          fi
+
+          case "$JOB_STATUS" in
+            success|failure) ;;
+            *) echo "Job status $JOB_STATUS. The issue report is skipped."; exit 0 ;;
+          esac
+
+          repo=WhiteLicorice/Ren-s-Materials
+          title="CI: $WORKFLOW_NAME failed"
+          body="$RUNNER_TEMP/issue-body.txt"
+          {
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Tested ref: %s\n' "$TESTED_REF"
+            printf 'Job: %s\n' "$JOB_NAME"
+            printf 'Matrix: %s\n' "$MATRIX_ENTRY"
+            printf '\n'
+          } > "$body"
+          budget=$(( 60000 - $(wc -c < "$body") ))
+          if [ -f "$full" ]; then
+            tail -c "$budget" "$full" >> "$body"
+          fi
+
+          numbers="$(gh api --paginate "repos/$repo/issues?state=open&per_page=100" \
+            --jq ".[] | select(.title == \"$title\") | .number")"
+          number="$(printf '%s\n' "$numbers" | sed -n '1p')"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
+            else
+              echo "No open issue to close."
+            fi
+            exit 0
+          fi
+
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$repo" --body-file "$body"
+          else
+            gh issue create -R "$repo" --title "$title" --body-file "$body"
+          fi
+

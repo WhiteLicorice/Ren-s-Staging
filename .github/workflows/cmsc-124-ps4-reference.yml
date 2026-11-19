@@ -85,5 +85,72 @@ jobs:
       # reference/predictions.tsv, src/rules.pl, and ANALYSIS.md. Then it runs
       # the starter's published check.sh against the copy. Expect 66/66.
       - name: Run the published checks with the solution overlaid
-        run: bash "materials/CMSC 124/Lecture/ps-prolog/reference/verify.sh"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          bash "materials/CMSC 124/Lecture/ps-prolog/reference/verify.sh"
         shell: bash
+
+      - name: Report the result
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TESTED_REF: ${{ inputs.ref || 'master' }}
+          JOB_NAME: ${{ github.job }}
+          MATRIX_ENTRY: ${{ toJSON(matrix) }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          full="$RUNNER_TEMP/full-output.txt"
+
+          # The public log prints the case names and the pass or fail results.
+          # The full output stays in the file and goes to the private issue.
+          if [ -f "$full" ]; then
+            grep -E '^\[(PASS|FAIL)\]|^[0-9]+/[0-9]+ |^result: |^KTEST VERDICT |^  (ok|fail|warn) |^checks: |^(PASS|FAIL) |^All published checks passed|^verify\.sh: |^self-tests: pass|^shared files: in sync|^no QEMU process is left|^starter .* ok|^exported |^verify: PASS|^Lab [0-9] count|^All Lab [0-9] checks passed|^Group Lab|^[0-9]+ of [0-9]+ steps complete|^Some checks in cases failed|^the reference state imported|^CMSC197_' "$full" || true
+          fi
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "MATERIALS_ISSUES_TOKEN is empty. The issue report is skipped."
+            exit 0
+          fi
+
+          case "$JOB_STATUS" in
+            success|failure) ;;
+            *) echo "Job status $JOB_STATUS. The issue report is skipped."; exit 0 ;;
+          esac
+
+          repo=WhiteLicorice/Ren-s-Materials
+          title="CI: $WORKFLOW_NAME failed"
+          body="$RUNNER_TEMP/issue-body.txt"
+          {
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Tested ref: %s\n' "$TESTED_REF"
+            printf 'Job: %s\n' "$JOB_NAME"
+            printf 'Matrix: %s\n' "$MATRIX_ENTRY"
+            printf '\n'
+          } > "$body"
+          budget=$(( 60000 - $(wc -c < "$body") ))
+          if [ -f "$full" ]; then
+            tail -c "$budget" "$full" >> "$body"
+          fi
+
+          numbers="$(gh api --paginate "repos/$repo/issues?state=open&per_page=100" \
+            --jq ".[] | select(.title == \"$title\") | .number")"
+          number="$(printf '%s\n' "$numbers" | sed -n '1p')"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
+            else
+              echo "No open issue to close."
+            fi
+            exit 0
+          fi
+
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$repo" --body-file "$body"
+          else
+            gh issue create -R "$repo" --title "$title" --body-file "$body"
+          fi
+
