@@ -99,20 +99,24 @@ jobs:
           done
           cat "$marks"
 
-          # Fetch the materials history back to the oldest watermark. A suite
-          # that never ran leaves no watermark, so the fetch falls back to the
-          # head commit alone and every suite is dispatched.
-          oldest="$(awk '$2 != "none" { print $2 }' "$marks" | sort | head -1)"
+          # Fetch the head first. A shallow-since fetch fails when the head
+          # commit is older than the date, so the deepen below runs only when
+          # the date is older than the head commit.
           repo="$RUNNER_TEMP/materials"
           git init --quiet "$repo"
           git -C "$repo" remote add origin git@github.com:WhiteLicorice/Ren-s-Materials.git
-          if [ -n "$oldest" ]; then
-            git -C "$repo" fetch --quiet --no-tags --shallow-since="$oldest" origin master
-          else
-            git -C "$repo" fetch --quiet --no-tags --depth 1 origin master
-          fi
+          git -C "$repo" fetch --quiet --no-tags --depth 1 origin master
           head="$(git -C "$repo" rev-parse FETCH_HEAD)"
+          head_epoch="$(git -C "$repo" log -1 --format=%ct FETCH_HEAD)"
           echo "materials head $head"
+
+          oldest="$(awk '$2 != "none" { print $2 }' "$marks" | sort | head -1)"
+          if [ -n "$oldest" ]; then
+            oldest_epoch="$(date -u -d "$oldest" +%s)"
+            if [ "$oldest_epoch" -lt "$head_epoch" ]; then
+              git -C "$repo" fetch --quiet --no-tags --shallow-since="$oldest" origin master
+            fi
+          fi
 
           dispatch() {
             echo "dispatch $1 at $head"
