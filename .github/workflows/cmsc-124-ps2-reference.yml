@@ -120,11 +120,20 @@ jobs:
           number="$(printf '%s\n' "$numbers" | sed -n '1p')"
 
           if [ "$JOB_STATUS" = "success" ]; then
-            if [ -n "$number" ]; then
-              gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
-            else
+            if [ -z "$number" ]; then
               echo "No open issue to close."
+              exit 0
             fi
+            # A passing job must not close an issue that a failing job of the
+            # same run opened. The failure body names the run URL.
+            comments="$(gh api --paginate "repos/$repo/issues/$number/comments?per_page=100" --jq '.[].body')"
+            case "$comments" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
+            gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
             exit 0
           fi
 
