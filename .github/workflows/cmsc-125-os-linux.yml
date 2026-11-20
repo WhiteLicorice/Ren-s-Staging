@@ -214,15 +214,34 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The kernel reads and writes six 512-byte sectors: two slots of a
-          # 512-byte header and 1,024 bytes of data. GNU tar, which Ubuntu
-          # provides, uses the blocking factor of 20 records, so the image is
-          # 10,240 bytes. The floor stays the same as the macOS suite, where
-          # BSD tar writes only the records the files need.
+          # The kernel reads and writes DISK_MAX_SIZE bytes: FILES_MAX slots of
+          # a 512-byte tar header and 1,024 bytes of data (kernel.h:29-31). Read
+          # the value from the header, so this check follows the kernel and not
+          # a number written here.
+          printf '#include "kernel.h"\nchar disk_need[DISK_MAX_SIZE];\n' > "$RUNNER_TEMP/disk-need.c"
+          clang -I. -Wno-incompatible-library-redeclaration -c "$RUNNER_TEMP/disk-need.c" -o "$RUNNER_TEMP/disk-need.o"
+          need=$(llvm-size -A "$RUNNER_TEMP/disk-need.o" | awk '$1 == ".bss" { print $2 }')
+          echo "the kernel needs $need bytes"
+          [ -n "$need" ]
+
           make test-disk
           size=$(wc -c < build/test-disk.tar)
           echo "build/test-disk.tar is $size bytes"
-          [ "$size" -ge 3072 ]
+
+          # GNU tar pads to 10,240 bytes, so the real image always passes and a
+          # bare comparison here could never fail. Prove the comparison rejects
+          # a short image first, then apply it. A 2,048-byte image holds one
+          # slot, not two.
+          short="$RUNNER_TEMP/short-disk.tar"
+          head -c 2048 build/test-disk.tar > "$short"
+          short_size=$(wc -c < "$short")
+          if [ "$short_size" -ge "$need" ]; then
+            echo "the check accepts a $short_size-byte image, so it cannot fail" >&2
+            exit 1
+          fi
+          echo "the check rejects a $short_size-byte image"
+
+          [ "$size" -ge "$need" ]
 
       - name: The Lab 4 disk image is 10,240 bytes
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
