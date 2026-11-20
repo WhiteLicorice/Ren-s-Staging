@@ -227,7 +227,7 @@ jobs:
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           # The Lab 4 manual prints make disk-mac in its six-command block
-          # (cmsc-125-lab4.md:369). Run it as printed and read the size back.
+          # (cmsc-125-lab4.md:390). Run it as printed and read the size back.
           make disk-mac
           size=$(wc -c < build/disk.tar)
           echo "build/disk.tar is $size bytes"
@@ -264,8 +264,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 2 manual prints this command at cmsc-125-lab2.md:411 and
-          # the CC prefix at :414. The case is the listing the manual has the
+          # The Lab 2 manual prints this command at cmsc-125-lab2.md:413 and
+          # the CC prefix at :416. The case is the listing the manual has the
           # student save as tests/cases/flags.c, so extract it from the page.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab2/cmsc-125-lab2.md" > tests/cases/flags.c <<'PY'
           import re
@@ -305,8 +305,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 4 manual prints this command at cmsc-125-lab4.md:655 and
-          # the CC prefix at :658.
+          # The Lab 4 manual prints this command at cmsc-125-lab4.md:676 and
+          # the CC prefix at :680.
           set +e
           out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case stage4_persistence --source tests/cases/stage4_persistence.c --assertions 3 --boots 2 2>&1)"
           rc=$?

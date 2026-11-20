@@ -348,7 +348,7 @@ jobs:
           cd "materials/CMSC 125/Laboratory/os-reference"
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           # The Lab 4 manual prints make disk and its macOS form
-          # (cmsc-125-lab4.md:459). Run the Linux form and read the size back.
+          # (cmsc-125-lab4.md:480). Run the Linux form and read the size back.
           make disk
           size=$(wc -c < build/disk.tar)
           echo "build/disk.tar is $size bytes"
@@ -407,8 +407,8 @@ jobs:
           $script = @'
           cd "materials/CMSC 125/Laboratory/os-reference"
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 2 manual prints this command at cmsc-125-lab2.md:411 and
-          # the CC prefix at :414. The case is the listing the manual has the
+          # The Lab 2 manual prints this command at cmsc-125-lab2.md:413 and
+          # the CC prefix at :416. The case is the listing the manual has the
           # student save as tests/cases/flags.c. Extract it from the page.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab2/cmsc-125-lab2.md" > tests/cases/flags.c <<'PY'
           import re
@@ -468,8 +468,8 @@ jobs:
           $script = @'
           cd "materials/CMSC 125/Laboratory/os-reference"
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 4 manual prints this command at cmsc-125-lab4.md:655 and
-          # the CC prefix at :658.
+          # The Lab 4 manual prints this command at cmsc-125-lab4.md:676 and
+          # the CC prefix at :680.
           set +e
           out="$(bash tests/run-tests.sh --case stage4_persistence --source tests/cases/stage4_persistence.c --assertions 3 --boots 2 2>&1)"
           rc=$?
@@ -492,7 +492,7 @@ jobs:
           $script = @'
           cd "materials/CMSC 125/Laboratory/os-reference"
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 4 manual prints this command (cmsc-125-lab4.md:407).
+          # The Lab 4 manual prints this command (cmsc-125-lab4.md:428).
           make test STAGE=4
           '@
           [IO.File]::WriteAllText("$env:RUNNER_TEMP/step.sh", ($script -replace "`r`n", "`n"))
@@ -539,7 +539,7 @@ jobs:
           cd "materials/CMSC 125/Laboratory/os-reference"
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           # The Lab 4 manual prints this command and its 43-check count
-          # (cmsc-125-lab4.md:413-415).
+          # (cmsc-125-lab4.md:431-434).
           set +e
           out="$(make test-harness 2>&1)"
           rc=$?
