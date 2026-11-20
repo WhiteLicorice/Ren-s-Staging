@@ -1,8 +1,9 @@
 name: poll
 
-# The old push triggers are gone. This workflow replaces them. Once an hour it
-# reads the Ren-s-Materials head with the deploy key and dispatches only the
-# suites whose old push paths changed since the head they last passed on.
+# Every suite runs when a path it covers changes. This workflow is what makes
+# that happen. Once an hour it reads the Ren-s-Materials head with the deploy
+# key and dispatches only the suites whose paths changed since the head they
+# last passed on.
 #
 # The last tested head is kept in this repository's own run history. A suite's
 # watermark is the start time of its newest run that is not a failure. A queued
@@ -29,8 +30,22 @@ jobs:
   poll:
     runs-on: ubuntu-latest
     permissions:
+      # `actions: write` dispatches the suites. `contents: read` lets the
+      # checkout below read this repository's own history.
       actions: write
+      contents: read
     steps:
+      # A suite also covers its own workflow file, and that file lives here, not
+      # in the materials repository. The full history is small, and the loop
+      # below reads it to see whether a workflow file changed since the suite
+      # last ran.
+      - name: Check out this repository's own history
+        uses: actions/checkout@v7
+        with:
+          path: staging
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Dispatch the suites whose paths changed
         env:
           GH_TOKEN: ${{ github.token }}
@@ -45,45 +60,108 @@ jobs:
           chmod 600 "$key"
           export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
-          # The eight suites that used to run on a push. The other four run on
-          # demand only, so this poll never dispatches them.
-          suites="cmsc-124-ps1-reference cmsc-124-ps2-reference cmsc-124-ps3-reference cmsc-124-ps4-reference cmsc-125-ps1-reference cmsc-125-ps2-reference cmsc-125-ps3-reference cmsc-125-ps4-reference"
+          # Every suite. Each one runs when a path it covers changes.
+          suites="cmsc-124-ps1-reference cmsc-124-ps2-reference cmsc-124-ps3-reference cmsc-124-ps4-reference cmsc-125-ps1-reference cmsc-125-ps2-reference cmsc-125-ps3-reference cmsc-125-ps4-reference cmsc-125-os-macos cmsc-125-os-linux cmsc-125-os-windows cmsc-125-bootcamp-reference cmsc-127-lab-reference cmsc-127-platform-validation cmsc-127-bootcamp-reference cmsc-197-gdd-platform-validation"
 
-          # The paths each suite's old push trigger watched. A trailing slash
-          # stands for the glob the old trigger wrote as '/**'.
+          # The materials paths each suite covers: its manuals, its bundles, its
+          # starter and reference folders or gitlinks, and its spec. A trailing
+          # slash stands for the whole folder. The suite's own workflow file is
+          # checked separately, because it lives in this repository.
           matches() {
             case "$1" in
               cmsc-124-ps1-reference)
                 case "$2" in
-                  "CMSC 124/Lecture/ps-data-types/starter"|"CMSC 124/Lecture/ps-data-types/reference/"*|".github/workflows/cmsc-124-ps1-reference.yml") return 0 ;;
+                  "CMSC 124/Lecture/ps-data-types/"*) return 0 ;;
                 esac ;;
               cmsc-124-ps2-reference)
                 case "$2" in
-                  "CMSC 124/Lecture/ps-r/starter"|"CMSC 124/Lecture/ps-r/reference/"*|".github/workflows/cmsc-124-ps2-reference.yml") return 0 ;;
+                  "CMSC 124/Lecture/ps-r/"*) return 0 ;;
                 esac ;;
               cmsc-124-ps3-reference)
                 case "$2" in
-                  "CMSC 124/Lecture/ps-clisp/starter"|"CMSC 124/Lecture/ps-clisp/reference/"*|".github/workflows/cmsc-124-ps3-reference.yml") return 0 ;;
+                  "CMSC 124/Lecture/ps-clisp/"*) return 0 ;;
                 esac ;;
               cmsc-124-ps4-reference)
                 case "$2" in
-                  "CMSC 124/Lecture/ps-prolog/starter"|"CMSC 124/Lecture/ps-prolog/reference/"*|".github/workflows/cmsc-124-ps4-reference.yml") return 0 ;;
+                  "CMSC 124/Lecture/ps-prolog/"*) return 0 ;;
                 esac ;;
               cmsc-125-ps1-reference)
                 case "$2" in
-                  "CMSC 125/Lecture/ps1/"*|".github/workflows/cmsc-125-ps1-reference.yml") return 0 ;;
+                  "CMSC 125/Lecture/ps1/"*) return 0 ;;
                 esac ;;
               cmsc-125-ps2-reference)
                 case "$2" in
-                  "CMSC 125/Lecture/ps2/"*|".github/workflows/cmsc-125-ps2-reference.yml") return 0 ;;
+                  "CMSC 125/Lecture/ps2/"*) return 0 ;;
                 esac ;;
               cmsc-125-ps3-reference)
                 case "$2" in
-                  "CMSC 125/Lecture/ps3/"*|".github/workflows/cmsc-125-ps3-reference.yml") return 0 ;;
+                  "CMSC 125/Lecture/ps3/"*) return 0 ;;
                 esac ;;
               cmsc-125-ps4-reference)
                 case "$2" in
-                  "CMSC 125/Lecture/ps4/"*|".github/workflows/cmsc-125-ps4-reference.yml") return 0 ;;
+                  "CMSC 125/Lecture/ps4/"*) return 0 ;;
+                esac ;;
+              cmsc-125-os-macos|cmsc-125-os-linux|cmsc-125-os-windows)
+                # The three operating-system routes share one set of inputs: the
+                # starter gitlink, the reference tree, the four lab manuals, and
+                # the spec.
+                case "$2" in
+                  "CMSC 125/Laboratory/os-starter"|\
+                  "CMSC 125/Laboratory/os-reference/"*|\
+                  "CMSC 125/Laboratory/lab1/"*|\
+                  "CMSC 125/Laboratory/lab2/"*|\
+                  "CMSC 125/Laboratory/lab3/"*|\
+                  "CMSC 125/Laboratory/lab4/"*|\
+                  "CMSC 125/Laboratory/spec/"*) return 0 ;;
+                esac ;;
+              cmsc-125-bootcamp-reference)
+                case "$2" in
+                  "CMSC 125/Laboratory/b1/"*|\
+                  "CMSC 125/Laboratory/b2/"*|\
+                  "CMSC 125/Laboratory/b3/"*|\
+                  "CMSC 125/Laboratory/b4/"*|\
+                  "CMSC 125/Laboratory/manifests/"*|\
+                  "CMSC 125/Laboratory/make-bootcamp-bundles.sh"|\
+                  "CMSC 125/Laboratory/spec/"*) return 0 ;;
+                esac ;;
+              cmsc-127-lab-reference)
+                case "$2" in
+                  "CMSC 127/Laboratory/lab1/"*|\
+                  "CMSC 127/Laboratory/lab2/"*|\
+                  "CMSC 127/Laboratory/lab3/"*|\
+                  "CMSC 127/Laboratory/harness"|\
+                  "CMSC 127/Laboratory/starter"|\
+                  "CMSC 127/Laboratory/reference/"*|\
+                  "CMSC 127/Laboratory/spec/"*|\
+                  "CMSC 127/Laboratory/policy/"*) return 0 ;;
+                esac ;;
+              cmsc-127-platform-validation)
+                case "$2" in
+                  "CMSC 127/Laboratory/b1/"*|\
+                  "CMSC 127/Laboratory/harness"|\
+                  "CMSC 127/Laboratory/lab3/reference/"*|\
+                  "CMSC 127/Laboratory/spec/"*) return 0 ;;
+                esac ;;
+              cmsc-127-bootcamp-reference)
+                case "$2" in
+                  "CMSC 127/Laboratory/b2/"*|\
+                  "CMSC 127/Laboratory/b3/"*|\
+                  "CMSC 127/Laboratory/b4/"*|\
+                  "CMSC 127/Laboratory/b5/"*|\
+                  "CMSC 127/Laboratory/b6/"*|\
+                  "CMSC 127/Laboratory/b7/"*|\
+                  "CMSC 127/Laboratory/manifests/"*|\
+                  "CMSC 127/Laboratory/make-bootcamp-bundles.sh"|\
+                  "CMSC 127/Laboratory/reference/bootcamp-domain/"*|\
+                  "CMSC 127/Laboratory/starter"|\
+                  "CMSC 127/Laboratory/spec/"*) return 0 ;;
+                esac ;;
+              cmsc-197-gdd-platform-validation)
+                case "$2" in
+                  "CMSC 197 (Game Design and Development)/Laboratory/"*|\
+                  "CMSC 197 (Game Design and Development)/Tasks/reviews/editor-proof/"*|\
+                  ".github/godot-editor-replay/"*|\
+                  ".github/publication-validation/"*) return 0 ;;
                 esac ;;
             esac
             return 1
@@ -128,6 +206,14 @@ jobs:
               dispatch "$suite"
               continue
             fi
+
+            # The suite's own workflow file lives here, so a change to it is
+            # read from this repository's history.
+            if [ -n "$(git -C staging log --since="$mark" --format=%H -- ".github/workflows/$suite.yml")" ]; then
+              dispatch "$suite"
+              continue
+            fi
+
             base="$(git -C "$repo" rev-list -1 --before="$mark" FETCH_HEAD || true)"
             if [ -z "$base" ]; then
               dispatch "$suite"
