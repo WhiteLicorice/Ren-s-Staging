@@ -80,6 +80,9 @@ jobs:
             Start-Process -FilePath "$env:RUNNER_TEMP\msys2.exe" -Wait -ArgumentList '/S'
           }
           if (-not (Test-Path 'C:\msys64\usr\bin\bash.exe')) { throw 'MSYS2 is not at C:\msys64' }
+          # WinGet exits non-zero when a package is already installed, so the
+          # outcome above is what decides this step.
+          exit 0
 
       - name: Install the UCRT64 toolchain (Windows)
         if: runner.os == 'Windows'

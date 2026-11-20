@@ -69,8 +69,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # WinGet exits non-zero when a package is already installed, and the
+          # runner image already carries Git and R. The outcome is checked below
+          # rather than the exit code.
           winget install --id RProject.R --exact --accept-package-agreements --accept-source-agreements
+          Write-Output "winget R exited $LASTEXITCODE"
           winget install --id Git.Git --exact --accept-package-agreements --accept-source-agreements
+          Write-Output "winget Git exited $LASTEXITCODE"
           $rbin = (Get-ChildItem 'C:\Program Files\R\R-*\bin\x64' -Directory | Sort-Object Name | Select-Object -Last 1).FullName
           if (-not $rbin) { throw 'R did not install under C:\Program Files\R' }
           Write-Output "R bin: $rbin"
@@ -86,6 +91,8 @@ jobs:
           }
           $rbin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           Write-Output "GITHUB_PATH written"
+          if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is not on PATH' }
+          exit 0
 
       - name: Report the version this runner grades with
         if: runner.os == 'Windows'
