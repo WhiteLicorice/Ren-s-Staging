@@ -123,6 +123,7 @@ jobs:
 
       - name: Report the result
         if: always()
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
@@ -322,6 +323,7 @@ jobs:
 
       - name: Report the result
         if: always()
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
