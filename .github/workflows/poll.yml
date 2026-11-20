@@ -1,9 +1,12 @@
 name: poll
 
-# Every suite runs when a path it covers changes. This workflow is what makes
-# that happen. Once an hour it reads the Ren-s-Materials head with the deploy
-# key and dispatches only the suites whose paths changed since the head they
-# last passed on.
+# Every suite runs when a path it covers changes, and on a dispatch. This
+# workflow is what makes the path change happen. Once an hour it reads the
+# Ren-s-Materials head with the deploy key and dispatches only the suites whose
+# paths changed since the head they last passed on.
+#
+# The four CMSC 124 suites run on a dispatch and a Sunday schedule. That
+# schedule catches an external package or URL that changed under an assignment.
 #
 # The last tested head is kept in this repository's own run history. A suite's
 # watermark is the start time of its newest run that is not a failure. A queued
