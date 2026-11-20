@@ -76,7 +76,7 @@ jobs:
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           # The Lab 1 companion prints one compile command, with
           # $(brew --prefix llvm)/bin/clang in place of clang on macOS
-          # (cmsc-125-c-companion.md:26). Run it on a listing from that page,
+          # (cmsc-125-c-companion.md:22-24). Run it on a listing from that page,
           # extracted from the page itself so the two cannot drift apart. The
           # listing comes from the student-facing companion, so printing it
           # shows no reference source.
@@ -227,7 +227,7 @@ jobs:
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           # The Lab 4 manual prints make disk-mac in its six-command block
-          # (cmsc-125-lab4.md:179). Run it as printed and read the size back.
+          # (cmsc-125-lab4.md:369). Run it as printed and read the size back.
           make disk-mac
           size=$(wc -c < build/disk.tar)
           echo "build/disk.tar is $size bytes"
@@ -237,8 +237,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 1 manual prints this command at cmsc-125-lab1.md:332 and
-          # the CC prefix at :165. The case is the listing the manual has the
+          # The Lab 1 manual prints this command at cmsc-125-lab1.md:373 and
+          # the CC prefix at :376. The case is the listing the manual has the
           # student save as tests/cases/order.c, so extract it from the page.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-lab1.md" > tests/cases/order.c <<'PY'
           import re
@@ -264,8 +264,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 2 manual prints this command at cmsc-125-lab2.md:315 and
-          # the CC prefix at :318. The case is the listing the manual has the
+          # The Lab 2 manual prints this command at cmsc-125-lab2.md:411 and
+          # the CC prefix at :414. The case is the listing the manual has the
           # student save as tests/cases/flags.c, so extract it from the page.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab2/cmsc-125-lab2.md" > tests/cases/flags.c <<'PY'
           import re
@@ -291,8 +291,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 3 manual prints this command at cmsc-125-lab3.md:357-358
-          # and the CC prefix at :365.
+          # The Lab 3 manual prints this command at cmsc-125-lab3.md:490-491
+          # and the CC prefix at :498.
           set +e
           out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case stage3_user_app --source tests/cases/stage3_user_app.c --assertions 4 2>&1)"
           rc=$?
@@ -305,8 +305,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 4 manual prints this command at cmsc-125-lab4.md:461 and
-          # the CC prefix at :464.
+          # The Lab 4 manual prints this command at cmsc-125-lab4.md:655 and
+          # the CC prefix at :658.
           set +e
           out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case stage4_persistence --source tests/cases/stage4_persistence.c --assertions 3 --boots 2 2>&1)"
           rc=$?
@@ -324,15 +324,31 @@ jobs:
       # The serial log holds one KTEST ASSERT line per assertion, and each line
       # carries the assertion expression from the reference case. Print the
       # case name and the pass or fail result only.
+      #
+      # This step writes to the public log, not to the capture file. The report
+      # step's filter holds no KTEST BEGIN or KTEST END pattern, so a capture
+      # here would never reach the log. The log holds CRLF line endings, and the
+      # controller strips the carriage return before it parses the log
+      # (tests/run-tests.sh:112), so this step does the same.
       - name: Show stage 4 create-file serial logs
         if: always()
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        shell: bash
         run: |
-          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           for log in build/logs/stage4_create_file.boot*.serial.log; do
             [ -f "$log" ] || continue
-            echo "--- $log ---"
-            grep -E '^KTEST (BEGIN|END) ' "$log" || true
+            tr -d '\r' < "$log" | awk '
+              /^KTEST END / {
+                name = ""
+                failures = ""
+                for (i = 3; i <= NF; i++) {
+                  if ($i ~ /^name=/) name = substr($i, 6)
+                  if ($i ~ /^failures=/) failures = substr($i, 10)
+                }
+                if (name != "" && failures != "")
+                  printf "case=%s result=%s\n", name, failures == "0" ? "pass" : "fail"
+              }
+            '
           done
 
       - name: Reference controller self-tests pass
