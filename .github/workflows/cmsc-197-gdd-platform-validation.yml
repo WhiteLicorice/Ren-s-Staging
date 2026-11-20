@@ -3,6 +3,10 @@ name: cmsc-197-gdd-platform-validation
 # The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
 # spends no private Actions minutes. It checks out the private materials
 # repository with a read-only deploy key.
+#
+# The replay runs on Ubuntu and macOS only. Windows is not replayed, because
+# drive.py has no Windows backend and a hosted Windows runner may show no GUI
+# window. The Windows export step still runs.
 on:
   workflow_dispatch:
     inputs:
