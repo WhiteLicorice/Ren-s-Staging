@@ -1,0 +1,385 @@
+# This workflow proves the CMSC 127 bootcamps, blocks 2 to 7, on all three
+# student platforms. It builds each release bundle from
+# `CMSC 127/Laboratory/make-bootcamp-bundles.sh`, then runs each block's own
+# reference check: `reveal_defect.sh` for blocks 2 to 6, and
+# `reveal_scores.sh` for each block 7 variant.
+#
+# Each check does three things. It runs the block's published `check.sh`
+# against the starter and requires the documented starting state. It runs the
+# same check against the reference and requires a full pass. It runs the same
+# check against a planted defect and requires the documented partial result.
+# So one check proves the starter, the reference, and the checker's ability to
+# tell them apart.
+#
+# Which student route each job proves. The b1 manual gives three routes and
+# every one installs natively:
+#
+#   * Windows installs Git, Python 3.15, PostgreSQL 18, and VS Code with their
+#     own Windows installers, then runs every Bash command in Git Bash. The
+#     `windows-2025` job follows that route.
+#   * macOS installs natively through Homebrew and the python.org package.
+#   * Linux installs through apt, the PGDG repository, and `uv`.
+#
+# PostgreSQL is set up the way `cmsc-127-platform-validation` sets it up on
+# Linux and macOS. On Windows it is set up the way the b1 manual prints it: the
+# EDB installer, unattended, on port 5432 with the `postgres` role.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-127-bootcamp-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu-24.04, macos-26, windows-2025]
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHON_VERSION: 3.15.2
+      PYTHON_PKG: python-3.15.2-macos11.pkg
+      PYTHON_EXE: python-3.15.2-amd64.exe
+      PG_VERSION: 18
+      PG_INSTALLER: postgresql-18.7-1-windows-x64.exe
+
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch the harness and starter submodules
+        run: |
+          set -euo pipefail
+          git -C materials submodule update --init -- \
+            "CMSC 127/Laboratory/harness" \
+            "CMSC 127/Laboratory/starter"
+
+      - name: Record the runner
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          date -u
+          uname -a
+          printf 'image=%s version=%s\n' "$ImageOS" "$ImageVersion"
+          printf 'workflow_commit=%s source_commit=%s\n' "$GITHUB_SHA" "$(git -C materials rev-parse HEAD)"
+          if [ "$RUNNER_OS" = macOS ]; then
+            sw_vers
+          elif [ "$RUNNER_OS" = Windows ]; then
+            cmd //c ver
+          else
+            cat /etc/os-release
+          fi
+
+      # The b1 manual prints one route per platform. Each branch below is that
+      # route, in the order the manual gives it.
+      - name: Install Python 3.15.2
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            curl --fail --location --retry 3 \
+              "https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_PKG}" \
+              -o "$RUNNER_TEMP/$PYTHON_PKG"
+            sudo installer -pkg "$RUNNER_TEMP/$PYTHON_PKG" -target /
+            command -v "python${PYTHON_VERSION%.*}"
+          elif [ "$RUNNER_OS" = Windows ]; then
+            # The manual installs Python's own install manager, then asks it for
+            # the 3.15 runtime. The Store package route needs the Store service,
+            # which a hosted runner may not run, so a failure here falls back to
+            # the python.org 3.15.2 installer for the same version.
+            powershell -NoProfile -Command \
+              "Add-AppxPackage -AppInstallerFile https://www.python.org/ftp/python/pymanager/pymanager.appinstaller" \
+              || echo "pymanager appinstaller failed"
+            py -3.15 --version || true
+            if ! py -3.15 --version 2>/dev/null | grep -q "^Python ${PYTHON_VERSION}$"; then
+              echo "pymanager did not provide 3.15.2. Using the python.org installer."
+              curl --fail --location --retry 3 \
+                "https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_EXE}" \
+                -o "$RUNNER_TEMP/$PYTHON_EXE"
+              powershell -NoProfile -Command \
+                "Start-Process -FilePath '$RUNNER_TEMP/$PYTHON_EXE' -Wait -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_test=0'"
+            fi
+            py -3.15 --version
+            py -3.15 --version | grep -q "^Python ${PYTHON_VERSION}$"
+          else
+            sudo apt-get install -y --no-install-recommends ca-certificates curl
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.local/bin:$PATH"
+            uv python install "${PYTHON_VERSION}"
+            printf 'PATH=%s/.local/bin:%s\n' "$HOME" "$PATH" >> "$GITHUB_ENV"
+            "python${PYTHON_VERSION%.*}" --version
+            test "$("python${PYTHON_VERSION%.*}" --version)" = "Python ${PYTHON_VERSION}"
+          fi
+
+      - name: Install PostgreSQL 18
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install "postgresql@${PG_VERSION}"
+            printf 'PATH=%s/bin:%s\n' "$(brew --prefix "postgresql@${PG_VERSION}")" "$PATH" >> "$GITHUB_ENV"
+            brew services start "postgresql@${PG_VERSION}"
+            export PATH="$(brew --prefix "postgresql@${PG_VERSION}")/bin:$PATH"
+            for _ in $(seq 1 60); do pg_isready -h 127.0.0.1 -p 5432 && break; sleep 2; done
+            pg_isready -h 127.0.0.1 -p 5432
+            psql -d postgres -c 'SELECT version();'
+            printf 'CMSC127_DATABASE_URL=postgresql://%s@127.0.0.1:5432/postgres\n' "$(whoami)" >> "$GITHUB_ENV"
+          elif [ "$RUNNER_OS" = Windows ]; then
+            # The b1 manual prints this installer, this port, and this role.
+            # Part 5.1 also asks for the Visual C++ v14 runtime, which the
+            # server needs before it starts.
+            curl --fail --location --retry 3 \
+              "https://get.enterprisedb.com/postgresql/${PG_INSTALLER}" \
+              -o "$RUNNER_TEMP/$PG_INSTALLER"
+            powershell -NoProfile -Command \
+              "Start-Process -FilePath '$RUNNER_TEMP/$PG_INSTALLER' -Wait -ArgumentList '--mode','unattended','--unattendedmodeui','none','--serverport','5432','--enable-components','server,commandlinetools','--disable-components','pgAdmin,stackbuilder','--superpassword','password'"
+            powershell -NoProfile -Command \
+              "\$runtime = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64' -ErrorAction SilentlyContinue; if (\$runtime.Installed -eq 1) { 'vc-runtime-present' } else { 'vc-runtime-absent' }"
+            powershell -NoProfile -Command \
+              "if ((Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64' -ErrorAction SilentlyContinue).Installed -ne 1) { curl.exe -sSL -o \"\$env:RUNNER_TEMP\vc_redist.x64.exe\" https://aka.ms/vc14/vc_redist.x64.exe; Start-Process -FilePath \"\$env:RUNNER_TEMP\vc_redist.x64.exe\" -Wait -ArgumentList '/quiet','/norestart' }"
+            powershell -NoProfile -Command "Get-Service postgresql-x64-${PG_VERSION} | Format-List Name,Status,StartType"
+            printf 'PATH=C:\\Program Files\\PostgreSQL\\%s\\bin;%s\n' "${PG_VERSION}" "$PATH" >> "$GITHUB_ENV"
+            export PATH="/c/Program Files/PostgreSQL/${PG_VERSION}/bin:$PATH"
+            for _ in $(seq 1 60); do pg_isready -h 127.0.0.1 -p 5432 && break; sleep 2; done
+            pg_isready -h 127.0.0.1 -p 5432
+            PGPASSWORD=password psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -c 'SELECT version();'
+            printf 'PGPASSWORD=password\nCMSC127_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5432/postgres\n' >> "$GITHUB_ENV"
+          else
+            sudo apt-get install -y --no-install-recommends postgresql-common ca-certificates curl
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
+              https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            . /etc/os-release
+            sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: ${VERSION_CODENAME}-pgdg
+          Architectures: $(dpkg --print-architecture)
+          Components: main
+          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          EOF
+            sudo apt-get update
+            sudo apt-get install -y "postgresql-${PG_VERSION}"
+            printf 'PATH=/usr/lib/postgresql/%s/bin:%s\n' "${PG_VERSION}" "$PATH" >> "$GITHUB_ENV"
+            export PATH="/usr/lib/postgresql/${PG_VERSION}/bin:$PATH"
+            if sudo pg_lsclusters -h | grep -q "^${PG_VERSION} main "; then
+              sudo pg_ctlcluster "${PG_VERSION}" main start
+            else
+              sudo pg_createcluster "${PG_VERSION}" main --start
+            fi
+            pg_port="$(sudo pg_lsclusters -h | awk -v v="${PG_VERSION}" '$1 == v && $2 == "main" { print $3 }')"
+            pg_port="${pg_port:-5432}"
+            printf 'cluster_port=%s\n' "$pg_port"
+            sudo -u postgres psql -p "$pg_port" -c "ALTER ROLE postgres PASSWORD 'password';"
+            export PGPASSWORD=password
+            for _ in $(seq 1 60); do pg_isready -h 127.0.0.1 -p "$pg_port" && break; sleep 2; done
+            pg_isready -h 127.0.0.1 -p "$pg_port"
+            psql -h 127.0.0.1 -p "$pg_port" -U postgres -d postgres -c 'SELECT version();'
+            printf 'PGPASSWORD=password\nCMSC127_DATABASE_URL=postgresql://postgres:password@127.0.0.1:%s/postgres\n' "$pg_port" >> "$GITHUB_ENV"
+          fi
+          psql --version
+
+      - name: Set the Git identity
+        # The manual tells the student to use their own name and email. The
+        # checker only asks that both are set.
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          git config --global user.name 'CMSC 127 Student'
+          git config --global user.email 'student@example.invalid'
+          git config --global --get user.name
+          git config --global --get user.email
+
+      # The bundle build copies files and checks each bundle against its
+      # manifest. The harness page is committed, so no Node.js build is needed.
+      - name: Build the bootcamp bundles
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory"
+          bash make-bootcamp-bundles.sh
+
+      - name: Create the environment and install the requirements
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory/b2/dist/bundle"
+          if [ "$RUNNER_OS" = Windows ]; then
+            py -3.15 -m venv .venv
+            # This is the activation line the manual prints for Windows.
+            source .venv/Scripts/activate
+          else
+            "python${PYTHON_VERSION%.*}" -m venv .venv
+            # This is the activation line the manual prints for macOS and Linux.
+            source .venv/bin/activate
+          fi
+          python --version
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -c 'import psycopg; print("psycopg", psycopg.__version__)'
+          printf 'CMSC127_VENV=%s\n' "$PWD/.venv" >> "$GITHUB_ENV"
+
+      # Each block's check runs the starter, the reference, and a planted
+      # defect. The block 7 check runs the starter, the reference, and two
+      # partial answers.
+      - name: Run the Block 2 check
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory"
+          if [ "$RUNNER_OS" = Windows ]; then source "$CMSC127_VENV/Scripts/activate"; else source "$CMSC127_VENV/bin/activate"; fi
+          bash b2/reference/reveal_defect.sh
+
+      - name: Run the Block 3 check
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory"
+          if [ "$RUNNER_OS" = Windows ]; then source "$CMSC127_VENV/Scripts/activate"; else source "$CMSC127_VENV/bin/activate"; fi
+          bash b3/reference/reveal_defect.sh
+
+      - name: Run the Block 4 check
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory"
+          if [ "$RUNNER_OS" = Windows ]; then source "$CMSC127_VENV/Scripts/activate"; else source "$CMSC127_VENV/bin/activate"; fi
+          bash b4/reference/reveal_defect.sh
+
+      - name: Run the Block 5 check
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory"
+          if [ "$RUNNER_OS" = Windows ]; then source "$CMSC127_VENV/Scripts/activate"; else source "$CMSC127_VENV/bin/activate"; fi
+          bash b5/reference/reveal_defect.sh
+
+      - name: Run the Block 6 check
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory"
+          if [ "$RUNNER_OS" = Windows ]; then source "$CMSC127_VENV/Scripts/activate"; else source "$CMSC127_VENV/bin/activate"; fi
+          bash b6/reference/reveal_defect.sh
+
+      - name: Run the Block 7 checks, one per variant
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 127/Laboratory"
+          if [ "$RUNNER_OS" = Windows ]; then source "$CMSC127_VENV/Scripts/activate"; else source "$CMSC127_VENV/bin/activate"; fi
+          for variant in a b c d; do
+            printf 'variant %s\n' "$variant"
+            bash "b7/variant-$variant/reference/reveal_scores.sh"
+          done
+
+      - name: Report the result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TESTED_REF: ${{ inputs.ref || 'master' }}
+          JOB_NAME: ${{ github.job }}
+          MATRIX_ENTRY: ${{ toJSON(matrix) }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          full="$RUNNER_TEMP/full-output.txt"
+
+          # The public log prints the case names and the pass or fail results.
+          # The full output stays in the file and goes to the private issue.
+          if [ -f "$full" ]; then
+            grep -E '^\[(PASS|FAIL)\]|^[0-9]+/[0-9]+ |^result: |^KTEST VERDICT |^  (ok|fail|warn) |^checks: |^(PASS|FAIL) |^All published checks passed|^verify\.sh: |^self-tests: pass|^shared files: in sync|^no QEMU process is left|^starter .* ok|^exported |^verify: PASS|^Lab [0-9] count|^All Lab [0-9] checks passed|^Group Lab|^[0-9]+ of [0-9]+ steps complete|^Some checks in cases failed|^the reference state imported|^CMSC197_' "$full" || true
+          fi
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "MATERIALS_ISSUES_TOKEN is empty. The issue report is skipped."
+            exit 0
+          fi
+
+          case "$JOB_STATUS" in
+            success|failure) ;;
+            *) echo "Job status $JOB_STATUS. The issue report is skipped."; exit 0 ;;
+          esac
+
+          repo=WhiteLicorice/Ren-s-Materials
+          title="CI: $WORKFLOW_NAME failed"
+          body="$RUNNER_TEMP/issue-body.txt"
+          {
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Tested ref: %s\n' "$TESTED_REF"
+            printf 'Job: %s\n' "$JOB_NAME"
+            printf 'Matrix: %s\n' "$MATRIX_ENTRY"
+            printf '\n'
+          } > "$body"
+          budget=$(( 60000 - $(wc -c < "$body") ))
+          if [ -f "$full" ]; then
+            tail -c "$budget" "$full" >> "$body"
+          fi
+
+          numbers="$(gh api --paginate "repos/$repo/issues?state=open&per_page=100" \
+            --jq ".[] | select(.title == \"$title\") | .number")"
+          number="$(printf '%s\n' "$numbers" | sed -n '1p')"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            if [ -z "$number" ]; then
+              echo "No open issue to close."
+              exit 0
+            fi
+            # A passing job must not close an issue that a failing job of the same run
+            # opened. The failure text names the run URL, in the body of a new issue or
+            # in a comment on an open one.
+            body_text="$(gh api "repos/$repo/issues/$number" --jq '.body')"
+            case "$body_text" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
+            comments="$(gh api --paginate "repos/$repo/issues/$number/comments?per_page=100" --jq '.[].body')"
+            case "$comments" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
+            gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
+            exit 0
+          fi
+
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$repo" --body-file "$body"
+            # A passing job of this run may have closed the issue between the lookup and
+            # the comment. A failure must leave the issue open.
+            state="$(gh api "repos/$repo/issues/$number" --jq '.state')"
+            if [ "$state" = "closed" ]; then
+              gh issue reopen "$number" -R "$repo"
+            fi
+          else
+            gh issue create -R "$repo" --title "$title" --body-file "$body"
+          fi
