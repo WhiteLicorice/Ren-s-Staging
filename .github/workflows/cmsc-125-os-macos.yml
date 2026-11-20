@@ -345,8 +345,11 @@ jobs:
                   if ($i ~ /^name=/) name = substr($i, 6)
                   if ($i ~ /^failures=/) failures = substr($i, 10)
                 }
-                if (name != "" && failures != "")
-                  printf "case=%s result=%s\n", name, failures == "0" ? "pass" : "fail"
+                if (name != "" && failures != "") {
+                  result = "fail"
+                  if (failures == "0") result = "pass"
+                  printf "case=%s result=%s\n", name, result
+                }
               }
             '
           done
