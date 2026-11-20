@@ -74,8 +74,18 @@ jobs:
           $rbin = (Get-ChildItem 'C:\Program Files\R\R-*\bin\x64' -Directory | Sort-Object Name | Select-Object -Last 1).FullName
           if (-not $rbin) { throw 'R did not install under C:\Program Files\R' }
           Write-Output "R bin: $rbin"
-          [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $rbin, 'User')
+          # The manual's line writes the user PATH so a new Git Bash picks R up.
+          # A runner reads GITHUB_PATH instead, so both are written and neither
+          # is required for the check below.
+          try {
+            $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+            if ([string]::IsNullOrEmpty($userPath)) { $newPath = $rbin } else { $newPath = "$userPath;$rbin" }
+            [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+          } catch {
+            Write-Output "The user PATH could not be written: $_"
+          }
           $rbin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "GITHUB_PATH written"
 
       - name: Report the version this runner grades with
         if: runner.os == 'Windows'
