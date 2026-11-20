@@ -196,9 +196,13 @@ jobs:
             fi
           fi
 
+          # A dispatch that fails must not skip the suites after it. The
+          # failure is collected and the script exits non-zero at the end.
+          failed=0
           dispatch() {
             echo "dispatch $1 at $head"
-            gh workflow run "$1.yml" -R "$GITHUB_REPOSITORY" -f ref="$head"
+            gh workflow run "$1.yml" -R "$GITHUB_REPOSITORY" -f ref="$head" \
+              || { echo "dispatch $1 failed" >&2; failed=1; }
           }
 
           while read -r suite mark; do
@@ -237,3 +241,5 @@ jobs:
               echo "skip $suite, no watched path changed"
             fi
           done < "$marks"
+
+          exit "${failed:-0}"
