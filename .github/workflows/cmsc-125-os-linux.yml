@@ -1,0 +1,314 @@
+# This workflow proves Labs 1 to 4 work on Ubuntu 24.04 through the apt route in ABOUT.md.
+# It runs the documented commands, then tests the reference through stage 4.
+# Full test output stays in RUNNER_TEMP. Public output shows tool versions and safe case results.
+name: cmsc-125-os-linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # Fetch the public starter only. The materials repository has private submodules.
+      - name: Fetch the starter submodule
+        run: git -C materials submodule update --init -- "CMSC 125/Laboratory/os-starter"
+
+      - name: Install the Ubuntu toolchain
+        run: |
+          sudo apt update
+          sudo apt install -y clang llvm lld qemu-system-misc python3
+
+      - name: Print the tool versions
+        run: |
+          uname -m
+          command -v bash; bash --version
+          command -v make; make --version
+          command -v clang; clang --version
+          command -v ld.lld; ld.lld --version
+          command -v llvm-objcopy; llvm-objcopy --version
+          command -v qemu-system-riscv32; qemu-system-riscv32 --version
+          command -v python3; python3 --version
+
+      - name: The Lab 1 companion compiler command works
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          companion="$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-c-companion.md"
+          python3 - "$companion" > listing.c <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8").read()
+          for block in re.finditer(r"```c\r?\n(.*?)```", text, re.S):
+              if "uint32_t field(" in block.group(1):
+                  sys.stdout.write(block.group(1).replace("\r\n", "\n"))
+                  break
+          else:
+              sys.exit("the companion holds no listing that defines field")
+          PY
+          echo "--- listing.c ---"
+          cat listing.c
+          clang -std=c11 -O2 -g3 -Wall -Wextra \
+                --target=riscv32-unknown-elf \
+                -fuse-ld=lld -fno-stack-protector -ffreestanding -nostdlib \
+                -I. -c listing.c
+          test -f listing.o
+          llvm-objdump -f listing.o | grep -q 'elf32-littleriscv'
+          printf '#include <stdio.h>\nint main(void) { puts("the compiler runs"); return 0; }\n' > runtime.c
+          clang -std=c11 runtime.c -o runtime
+          ./runtime | grep -q 'the compiler runs'
+
+      - name: Check the bootcamp ISO URLs and published checksums
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          arm=https://cdimage.ubuntu.com/ubuntu/releases/24.04/release/ubuntu-24.04.5-live-server-arm64.iso
+          intel=https://releases.ubuntu.com/24.04/ubuntu-24.04.5-live-server-amd64.iso
+          curl --fail --location --head "$arm"
+          curl --fail --location --head "$intel"
+          curl --fail --location https://cdimage.ubuntu.com/ubuntu/releases/24.04/release/SHA256SUMS -o /tmp/ubuntu-arm-SHA256SUMS
+          curl --fail --location https://releases.ubuntu.com/24.04/SHA256SUMS -o /tmp/ubuntu-amd64-SHA256SUMS
+          grep -F 'f12484464c7d4d73e2167e0a7dbda1e669f8fae9bcf778dc0944937034b320cb *ubuntu-24.04.5-live-server-arm64.iso' /tmp/ubuntu-arm-SHA256SUMS
+          grep -F '97f3d7ffb032c3eb3b23d2c8be9cc76e60c2c1f2c0146ba5ba9fe01cafae0fd8 *ubuntu-24.04.5-live-server-amd64.iso' /tmp/ubuntu-amd64-SHA256SUMS
+
+      - name: Starter builds
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          make
+
+      - name: Starter boots and prints its banner
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          log=build/banner.log
+          : > "$log"
+          set -m
+          make run </dev/null >"$log" 2>&1 &
+          pid=$!
+          ok=0
+          for _ in $(seq 1 150); do
+            if grep -q 'CMSC 125 operating system starter' "$log"; then ok=1; break; fi
+            sleep 0.1
+          done
+          kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          pkill -f qemu-system-riscv32 2>/dev/null || true
+          echo "--- starter serial log ---"
+          cat "$log"
+          [ "$ok" -eq 1 ]
+          grep -q 'CMSC 125 operating system starter' "$log"
+          grep -q 'build id' "$log"
+
+      - name: Starter controller self-tests pass
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          set +e
+          out="$(make test-harness 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'self-tests: pass (36 checks)'
+
+      - name: Starter stage 1 case fails to build as expected
+        working-directory: "materials/CMSC 125/Laboratory/os-starter"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          set +e
+          out="$(make test STAGE=1 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 2 ]
+          printf '%s\n' "$out" | grep -q 'KTEST VERDICT case=stage1_process result=fail reason=build-failed'
+
+      - name: Reference passes stage 1
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          make test STAGE=1
+
+      - name: Reference passes stage 2
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          make test STAGE=2
+
+      - name: Reference passes stage 3
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          make test STAGE=3
+
+      - name: The test disk image is large enough for both file slots
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          make test-disk
+          size=$(wc -c < build/test-disk.tar)
+          echo "build/test-disk.tar is $size bytes"
+          [ "$size" -ge 3072 ]
+
+      - name: The Lab 4 disk image is 10,240 bytes
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          make disk
+          size=$(wc -c < build/disk.tar)
+          echo "build/disk.tar is $size bytes"
+          [ "$size" -eq 10240 ]
+
+      - name: The Lab 1 case command passes
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-lab1.md" > tests/cases/order.c <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8").read()
+          for block in re.finditer(r"```c\r?\n(.*?)```", text, re.S):
+              if 'ktest_begin("order")' in block.group(1):
+                  sys.stdout.write(block.group(1).replace("\r\n", "\n"))
+                  break
+          else:
+              sys.exit("the Lab 1 manual holds no order listing")
+          PY
+          set +e
+          out="$(bash tests/run-tests.sh --case order --source tests/cases/order.c --assertions 3 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: The Lab 2 case command passes
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab2/cmsc-125-lab2.md" > tests/cases/flags.c <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8").read()
+          for block in re.finditer(r"```c\r?\n(.*?)```", text, re.S):
+              if 'ktest_begin("flags")' in block.group(1):
+                  sys.stdout.write(block.group(1).replace("\r\n", "\n"))
+                  break
+          else:
+              sys.exit("the Lab 2 manual holds no flags listing")
+          PY
+          set +e
+          out="$(bash tests/run-tests.sh --case flags --source tests/cases/flags.c --assertions 3 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: The Lab 3 case command passes
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          set +e
+          out="$(bash tests/run-tests.sh --case stage3_user_app --source tests/cases/stage3_user_app.c --assertions 4 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: The Lab 4 case command passes
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          set +e
+          out="$(bash tests/run-tests.sh --case stage4_persistence --source tests/cases/stage4_persistence.c --assertions 3 --boots 2 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'result: pass (1 cases)'
+
+      - name: Reference passes stage 4
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          make test STAGE=4
+
+      # Read only the record fields that identify the case and its result.
+      - name: Show stage 4 case results
+        if: always()
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        shell: bash
+        run: |
+          for log in build/logs/stage4_create_file.boot*.serial.log; do
+            [ -f "$log" ] || continue
+            awk '
+              /^KTEST END / {
+                name = ""
+                failures = ""
+                for (i = 3; i <= NF; i++) {
+                  if ($i ~ /^name=/) name = substr($i, 6)
+                  if ($i ~ /^failures=/) failures = substr($i, 10)
+                }
+                if (name != "" && failures != "")
+                  printf "case=%s result=%s\n", name, failures == "0" ? "pass" : "fail"
+              }
+            ' "$log"
+          done
+
+      - name: Reference controller self-tests pass
+        working-directory: "materials/CMSC 125/Laboratory/os-reference"
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          set +e
+          out="$(make test-harness 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'self-tests: pass (43 checks)'
+
+      - name: Shared files are in sync
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          set +e
+          out="$(bash "materials/CMSC 125/Laboratory/os-reference/verify-sync.sh" 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$out" | grep -q 'shared files: in sync'
+
+      - name: No QEMU process is left
+        if: always()
+        run: |
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          if pgrep -l qemu; then
+            echo "a QEMU process is still running" >&2
+            exit 1
+          fi
+          echo "no QEMU process is left"
