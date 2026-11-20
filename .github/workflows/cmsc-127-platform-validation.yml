@@ -572,6 +572,7 @@ jobs:
           bash doctor.sh
 
       - name: Prove that the Lab 3 role checks can create and remove roles
+        if: always()
         # The Lab 3 checks create and remove their own roles. This step proves
         # that the connection the b1 checker uses may do that.
         run: |
@@ -581,6 +582,7 @@ jobs:
           bash roles_probe.sh
 
       - name: Do the student's typing fix
+        if: always()
         # Part 7 of the manual asks the student to change the text value to an
         # integer. The checker fails until this is done.
         run: |
@@ -597,6 +599,7 @@ jobs:
           cat b1_typing.py
 
       - name: Run the b1 checker without an editor
+        if: always()
         # Any editor works, so the checker must pass with a warning when
         # Visual Studio Code is absent. A `code` command that a runner image
         # already provides is shadowed, so the warning branch is the one that
@@ -619,6 +622,7 @@ jobs:
           grep -F 'warn' "$EVIDENCE/check-no-editor.txt"
 
       - name: Install the editor
+        if: always()
         # The manual suggests Visual Studio Code, and its Windows installer is
         # the route it prints. The checker still passes without it, and this
         # step proves the suggested route works.
@@ -635,6 +639,7 @@ jobs:
           code --version
 
       - name: Run the b1 checker with the editor installed
+        if: always()
         run: |
           set -euo pipefail
           exec > >(tee "$EVIDENCE/check-editor.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
