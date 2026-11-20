@@ -1,6 +1,21 @@
-# This workflow proves Labs 1 to 4 work on Ubuntu 24.04 through the apt route in ABOUT.md.
-# It runs the documented commands, then tests the reference through stage 4.
-# Full test output stays in RUNNER_TEMP. Public output shows tool versions and safe case results.
+# This workflow proves the CMSC 125 laboratories 1 to 4 can be done on Ubuntu
+# 24.04. It uses the student install route in the starter's ABOUT.md. That route
+# is the Linux route: WSL2 with Ubuntu 24.04 on Windows, and Ubuntu itself on a
+# Linux host.
+#
+# The workflow installs clang, LLVM, LLD, and QEMU with apt. It then runs the
+# commands the manuals print. The starter builds and boots. The starter stage 1
+# cases fail to build as the expected starting state. The reference passes
+# stages 1 to 4. The Lab 2, Lab 3, and Lab 4 case commands pass. The Lab 4 disk
+# image is 10,240 bytes. The starter tree passes its documented starting-state
+# self-tests, and the reference passes all of its own.
+#
+# It runs on demand. Dispatch this workflow to check the Linux route again, or
+# after an Ubuntu package change.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
 name: cmsc-125-os-linux
 
 on:
@@ -30,10 +45,18 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      # Fetch the public starter only. The materials repository has private submodules.
+      # The starter is a submodule. Fetch only that one. The reference tree is
+      # a plain folder in the materials repository, so the checkout already
+      # holds it.
       - name: Fetch the starter submodule
         run: git -C materials submodule update --init -- "CMSC 125/Laboratory/os-starter"
 
+      # The two commands the student documents print for Ubuntu, exactly as
+      # printed. The sources are ABOUT.md:40-41, cmsc-125-lab1.md:127-128,
+      # cmsc-125-lab2.md:203-204, cmsc-125-lab3.md:198-199, and
+      # cmsc-125-lab4.md:359-360. Lab 1 leaves python3 out of the list. The
+      # later manuals add it. The controller needs it for the console client
+      # and the persistence self-test.
       - name: Install the Ubuntu toolchain
         run: |
           sudo apt update
@@ -41,6 +64,9 @@ jobs:
 
       - name: Print the tool versions
         run: |
+          # The macOS suite prints sw_vers here. The Linux counterpart is the
+          # release file, which names the Ubuntu version this route claims.
+          cat /etc/os-release
           uname -m
           command -v bash; bash --version
           command -v make; make --version
@@ -50,10 +76,15 @@ jobs:
           command -v qemu-system-riscv32; qemu-system-riscv32 --version
           command -v python3; python3 --version
 
-      - name: The Lab 1 companion compiler command works
+      - name: The Lab 1 companion's compiler command works
         working-directory: "materials/CMSC 125/Laboratory/os-starter"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 1 companion prints one compile command, with clang on
+          # Ubuntu (cmsc-125-c-companion.md:22-24). Run it on a listing from
+          # that page, extracted from the page itself so the two cannot drift
+          # apart. The listing comes from the student-facing companion, so
+          # printing it shows no reference source.
           companion="$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-c-companion.md"
           python3 - "$companion" > listing.c <<'PY'
           import re
@@ -74,11 +105,17 @@ jobs:
                 -fuse-ld=lld -fno-stack-protector -ffreestanding -nostdlib \
                 -I. -c listing.c
           test -f listing.o
+          # The object targets RV32, so it cannot run on this host. Read its
+          # header back to prove the compiler built the target asked for. Then
+          # prove the same compiler runs a native program.
           llvm-objdump -f listing.o | grep -q 'elf32-littleriscv'
           printf '#include <stdio.h>\nint main(void) { puts("the compiler runs"); return 0; }\n' > runtime.c
           clang -std=c11 runtime.c -o runtime
           ./runtime | grep -q 'the compiler runs'
 
+      # The bootcamp manual prints both ISO links and the release folders
+      # (cmsc-125-b1.md:188). Check that each link answers and that the
+      # published checksum list still holds the file.
       - name: Check the bootcamp ISO URLs and published checksums
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
@@ -91,10 +128,16 @@ jobs:
           grep -F 'f12484464c7d4d73e2167e0a7dbda1e669f8fae9bcf778dc0944937034b320cb *ubuntu-24.04.5-live-server-arm64.iso' /tmp/ubuntu-arm-SHA256SUMS
           grep -F '97f3d7ffb032c3eb3b23d2c8be9cc76e60c2c1f2c0146ba5ba9fe01cafae0fd8 *ubuntu-24.04.5-live-server-amd64.iso' /tmp/ubuntu-amd64-SHA256SUMS
 
+      # The macOS suite has a step here that proves a -mac target needs no LLVM
+      # PATH export. That step has no Linux counterpart. The apt packages put
+      # clang, ld.lld, and llvm-objcopy in /usr/bin, so a plain make already
+      # finds them. The tool version step above proves the same thing.
+
       - name: Starter builds
         working-directory: "materials/CMSC 125/Laboratory/os-starter"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 1 manual prints make and make run (cmsc-125-lab1.md:172-173).
           make
 
       - name: Starter boots and prints its banner
@@ -136,6 +179,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-starter"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 1 manual prints this command and its exit code
+          # (cmsc-125-lab1.md:215-224).
           set +e
           out="$(make test STAGE=1 2>&1)"
           rc=$?
@@ -154,18 +199,25 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 2 manual prints this command (cmsc-125-lab2.md:253).
           make test STAGE=2
 
       - name: Reference passes stage 3
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 3 manual prints this command (cmsc-125-lab3.md:273).
           make test STAGE=3
 
       - name: The test disk image is large enough for both file slots
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The kernel reads and writes six 512-byte sectors: two slots of a
+          # 512-byte header and 1,024 bytes of data. GNU tar, which Ubuntu
+          # provides, uses the blocking factor of 20 records, so the image is
+          # 10,240 bytes. The floor stays the same as the macOS suite, where
+          # BSD tar writes only the records the files need.
           make test-disk
           size=$(wc -c < build/test-disk.tar)
           echo "build/test-disk.tar is $size bytes"
@@ -175,6 +227,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 4 manual prints make disk and its macOS form
+          # (cmsc-125-lab4.md:459). Run the Linux form and read the size back.
           make disk
           size=$(wc -c < build/disk.tar)
           echo "build/disk.tar is $size bytes"
@@ -184,6 +238,11 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 1 manual prints this command at cmsc-125-lab1.md:373. The
+          # case is the listing the manual has the student save as
+          # tests/cases/order.c. Extract it from the page. The macOS suite adds
+          # a CC prefix here (cmsc-125-lab1.md:376). Ubuntu's clang is the
+          # compiler make already selects, so the command runs as printed.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-lab1.md" > tests/cases/order.c <<'PY'
           import re
           import sys
@@ -208,6 +267,9 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 2 manual prints this command at cmsc-125-lab2.md:411 and
+          # the CC prefix at :414. The case is the listing the manual has the
+          # student save as tests/cases/flags.c. Extract it from the page.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab2/cmsc-125-lab2.md" > tests/cases/flags.c <<'PY'
           import re
           import sys
@@ -232,6 +294,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 3 manual prints this command at cmsc-125-lab3.md:490-491
+          # and the CC prefix at :498.
           set +e
           out="$(bash tests/run-tests.sh --case stage3_user_app --source tests/cases/stage3_user_app.c --assertions 4 2>&1)"
           rc=$?
@@ -244,6 +308,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 4 manual prints this command at cmsc-125-lab4.md:655 and
+          # the CC prefix at :658.
           set +e
           out="$(bash tests/run-tests.sh --case stage4_persistence --source tests/cases/stage4_persistence.c --assertions 3 --boots 2 2>&1)"
           rc=$?
@@ -256,9 +322,17 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 4 manual prints this command (cmsc-125-lab4.md:407).
           make test STAGE=4
 
-      # Read only the record fields that identify the case and its result.
+      # The serial log holds one KTEST ASSERT line per assertion. Each line
+      # carries the assertion expression from the reference case. Print the
+      # case name and the pass or fail result only.
+      #
+      # The log holds CRLF line endings. The controller strips the carriage
+      # return before it parses the log (tests/run-tests.sh:112), so this step
+      # does the same. Without the strip, the failures field reads "0\r" and
+      # every case reports fail.
       - name: Show stage 4 case results
         if: always()
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
@@ -266,7 +340,7 @@ jobs:
         run: |
           for log in build/logs/stage4_create_file.boot*.serial.log; do
             [ -f "$log" ] || continue
-            awk '
+            tr -d '\r' < "$log" | awk '
               /^KTEST END / {
                 name = ""
                 failures = ""
@@ -277,13 +351,15 @@ jobs:
                 if (name != "" && failures != "")
                   printf "case=%s result=%s\n", name, failures == "0" ? "pass" : "fail"
               }
-            ' "$log"
+            '
           done
 
       - name: Reference controller self-tests pass
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          # The Lab 4 manual prints this command and its 43-check count
+          # (cmsc-125-lab4.md:413-415).
           set +e
           out="$(make test-harness 2>&1)"
           rc=$?
@@ -312,3 +388,16 @@ jobs:
             exit 1
           fi
           echo "no QEMU process is left"
+
+      # Every check step writes to $RUNNER_TEMP/full-output.txt. This step
+      # prints the case names and the pass or fail results to the public log,
+      # and nothing else. The full output stays in the file.
+      - name: Print the result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          full="$RUNNER_TEMP/full-output.txt"
+          if [ -f "$full" ]; then
+            grep -E '^\[(PASS|FAIL)\]|^[0-9]+/[0-9]+ |^result: |^KTEST VERDICT |^  (ok|fail|warn) |^checks: |^(PASS|FAIL) |^All published checks passed|^verify\.sh: |^self-tests: pass|^shared files: in sync|^no QEMU process is left|^starter .* ok|^exported |^verify: PASS|^Lab [0-9] count|^All Lab [0-9] checks passed|^Group Lab|^[0-9]+ of [0-9]+ steps complete|^Some checks in cases failed|^the reference state imported|^CMSC197_' "$full" || true
+          fi
