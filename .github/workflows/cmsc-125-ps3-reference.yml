@@ -25,7 +25,6 @@ permissions:
   contents: read
 
 jobs:
-  # The Ubuntu gate runs on demand.
   reference:
     runs-on: ubuntu-latest
     steps:
@@ -64,9 +63,10 @@ jobs:
           bash "materials/CMSC 125/Lecture/ps3/reference/verify.sh"
         shell: bash
 
-  # The macOS route from the manual runs on demand only, because a macOS
-  # runner costs more than an Ubuntu runner. The semaphore module uses named
-  # semaphores because macOS does not support unnamed semaphores.
+  # The macOS route from the manual. It runs in the same dispatch as the
+  # Ubuntu job, so one dispatch proves both native routes. The semaphore
+  # module uses named semaphores because macOS does not support unnamed
+  # semaphores.
 
       - name: Report the result
         if: always()

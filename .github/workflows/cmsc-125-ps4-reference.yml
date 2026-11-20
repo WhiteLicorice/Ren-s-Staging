@@ -25,7 +25,6 @@ permissions:
   contents: read
 
 jobs:
-  # The Ubuntu gate runs on demand.
   reference:
     runs-on: ubuntu-latest
     steps:

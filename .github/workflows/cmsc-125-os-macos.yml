@@ -8,8 +8,8 @@
 # starting-state self-tests, and the reference passes all of its own. One extra
 # step proves a -mac target needs no LLVM PATH export.
 #
-# It runs on demand. A macOS runner is scarce. Dispatch this workflow to check
-# the native macOS route again, or after a Homebrew toolchain change.
+# It runs when a path it covers changes, and on a dispatch. The poll workflow
+# dispatches it in the same run as the Linux and Windows routes.
 #
 # The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
 # spends no private Actions minutes. It checks out the private materials

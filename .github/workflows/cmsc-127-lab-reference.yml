@@ -1,8 +1,5 @@
 name: cmsc-127-lab-reference
 
-# Dispatch only. The orchestrator runs this workflow once before it closes a task, so pushes and a
-# schedule don't spend the private Actions quota.
-#
 # The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
 # spends no private Actions minutes. It checks out the private materials
 # repository with a read-only deploy key.
