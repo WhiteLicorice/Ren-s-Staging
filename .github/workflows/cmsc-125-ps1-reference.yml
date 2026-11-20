@@ -208,9 +208,11 @@ jobs:
           bash "materials/CMSC 125/Lecture/ps1/reference/verify.sh"
           '@
           [IO.File]::WriteAllText("$env:RUNNER_TEMP/step.sh", ($script -replace "`r`n", "`n"))
-          $posixScript = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP/step.sh").Trim()
-          $posixWorkspace = (wsl -d Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
-          $posixTemp = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP").Trim()
+          # wsl.exe drops the backslashes from a Windows path, so wslpath gets
+          # a forward-slash path instead.
+          $posixScript = (wsl -d Ubuntu -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
+          $posixWorkspace = (wsl -d Ubuntu -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
+          $posixTemp = (wsl -d Ubuntu -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
           wsl -d Ubuntu -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
           exit $LASTEXITCODE
 

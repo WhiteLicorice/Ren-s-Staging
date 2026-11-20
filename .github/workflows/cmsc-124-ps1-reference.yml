@@ -67,8 +67,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          winget install --id MSYS2.MSYS2 --exact --accept-package-agreements --accept-source-agreements
-          if (-not (Test-Path 'C:\msys64\usr\bin\bash.exe')) { throw 'MSYS2 did not install to C:\msys64' }
+          if (Test-Path 'C:\msys64\usr\bin\bash.exe') {
+            Write-Output 'MSYS2 is already at C:\msys64'
+          } else {
+            winget install --id MSYS2.MSYS2 --exact --accept-package-agreements --accept-source-agreements
+          }
+          # The WinGet installer exits 1 on a runner that already carries part of
+          # MSYS2. The official installer runs unattended with /S.
+          if (-not (Test-Path 'C:\msys64\usr\bin\bash.exe')) {
+            Write-Output 'WinGet did not leave MSYS2 at C:\msys64. Using the official installer.'
+            curl.exe -sSL -o "$env:RUNNER_TEMP\msys2.exe" https://github.com/msys2/msys2-installer/releases/latest/download/msys2-x86_64-latest.exe
+            Start-Process -FilePath "$env:RUNNER_TEMP\msys2.exe" -Wait -ArgumentList '/S'
+          }
+          if (-not (Test-Path 'C:\msys64\usr\bin\bash.exe')) { throw 'MSYS2 is not at C:\msys64' }
 
       - name: Install the UCRT64 toolchain (Windows)
         if: runner.os == 'Windows'
