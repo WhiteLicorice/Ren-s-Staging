@@ -1,0 +1,401 @@
+# This workflow proves the CMSC 125 bootcamps, blocks 1 to 4, on the Ubuntu
+# that every student route ends in. It builds each release bundle from
+# `CMSC 125/Laboratory/make-bootcamp-bundles.sh`, checks every bundle against
+# its manifest, and then runs `verify-references`, which builds each block in a
+# scratch directory from the generated bundle and runs its checker.
+#
+# Which student route each job proves. The b1 manual gives three routes and all
+# three end in Ubuntu 24.04:
+#
+#   * Windows runs Ubuntu inside Windows Subsystem for Linux 2. The manual
+#     prints `wsl --install` and then every course command inside Ubuntu. The
+#     `windows-2025` job follows that route and runs the same commands inside
+#     the distribution. Probe run 44644114479 proved that WSL2 starts on a
+#     hosted Windows runner and that `qemu-riscv32` runs inside it.
+#   * macOS runs Ubuntu in a virtual machine, because `qemu-riscv32` is a
+#     Linux and BSD host program. The manual prints UTM and the Ubuntu 24.04
+#     server image. A hosted macOS runner cannot run a nested virtual machine,
+#     so the `ubuntu-24.04` job is the proof of the Ubuntu that route installs.
+#     The macOS-side steps (UTM, the Ubuntu installer) are not exercised here.
+#   * Linux is native, and the `ubuntu-24.04` job is that route.
+#
+# The suite runs in the public repository WhiteLicorice/Ren-s-Staging, so it
+# spends no private Actions minutes. It checks out the private materials
+# repository with a read-only deploy key.
+name: cmsc-125-bootcamp-reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch of WhiteLicorice/Ren-s-Materials to test'
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      ZIG_VERSION: 0.16.0
+
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The bootcamp blocks are plain folders in the materials repository, so
+      # this suite needs no submodule. The check below fails loudly if that
+      # ever changes.
+      - name: Confirm the bootcamp blocks are present
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          lab="materials/CMSC 125/Laboratory"
+          for block in b1 b2 b3 b4; do
+            test -d "$lab/$block/dist"
+            printf 'block %s present\n' "$block"
+          done
+          test -f "$lab/make-bootcamp-bundles.sh"
+          test -d "$lab/manifests"
+
+      # The install line is the one the b1 manual prints for Ubuntu, in Part 5.
+      - name: Install the toolchain the manual prints for Ubuntu
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld qemu-system-riscv32 qemu-user \
+            gdb-multiarch jq curl make poppler-utils
+          curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-$(uname -m)-linux-${ZIG_VERSION}.tar.xz" \
+            | sudo tar -xJ -C /opt
+          sudo ln -sf "/opt/zig-$(uname -m)-linux-${ZIG_VERSION}/zig" /usr/local/bin/zig
+
+      - name: Report the tool versions
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          lsb_release -a || cat /etc/os-release
+          zig version
+          qemu-riscv32 --version | head -1
+          clang --version | head -1
+          ld.lld --version | head -1
+          llvm-objcopy --version | head -1
+          qemu-system-riscv32 --version | head -1
+          gdb-multiarch --version | head -1
+          make --version | head -1
+          jq --version
+          pdftotext -v 2>&1 | head -1
+          test "$(zig version)" = "$ZIG_VERSION"
+
+      # The bundle build copies files and checks each bundle against its
+      # manifest. It needs pdftotext, because one release check reads the psABI
+      # PDF.
+      - name: Build the bundles and check them against their manifests
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 125/Laboratory"
+          bash make-bootcamp-bundles.sh
+
+      # verify-references builds each block in a scratch directory from the
+      # generated bundle and runs its checker. It prints one line per check.
+      - name: Run every block's checker from its generated bundle
+        run: |
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 125/Laboratory"
+          bash make-bootcamp-bundles.sh verify-references
+
+      - name: Report the result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TESTED_REF: ${{ inputs.ref || 'master' }}
+          JOB_NAME: ${{ github.job }}
+          MATRIX_ENTRY: ${{ toJSON(matrix) }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          full="$RUNNER_TEMP/full-output.txt"
+
+          # The public log prints the case names and the pass or fail results.
+          # The full output stays in the file and goes to the private issue.
+          if [ -f "$full" ]; then
+            grep -E '^\[(PASS|FAIL)\]|^[0-9]+/[0-9]+ |^result: |^KTEST VERDICT |^  (ok|fail|warn) |^checks: |^(PASS|FAIL) |^All published checks passed|^verify\.sh: |^self-tests: pass|^shared files: in sync|^no QEMU process is left|^starter .* ok|^exported |^verify: PASS|^Lab [0-9] count|^All Lab [0-9] checks passed|^Group Lab|^[0-9]+ of [0-9]+ steps complete|^Some checks in cases failed|^the reference state imported|^CMSC197_' "$full" || true
+          fi
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "MATERIALS_ISSUES_TOKEN is empty. The issue report is skipped."
+            exit 0
+          fi
+
+          case "$JOB_STATUS" in
+            success|failure) ;;
+            *) echo "Job status $JOB_STATUS. The issue report is skipped."; exit 0 ;;
+          esac
+
+          repo=WhiteLicorice/Ren-s-Materials
+          title="CI: $WORKFLOW_NAME failed"
+          body="$RUNNER_TEMP/issue-body.txt"
+          {
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Tested ref: %s\n' "$TESTED_REF"
+            printf 'Job: %s\n' "$JOB_NAME"
+            printf 'Matrix: %s\n' "$MATRIX_ENTRY"
+            printf '\n'
+          } > "$body"
+          budget=$(( 60000 - $(wc -c < "$body") ))
+          if [ -f "$full" ]; then
+            tail -c "$budget" "$full" >> "$body"
+          fi
+
+          numbers="$(gh api --paginate "repos/$repo/issues?state=open&per_page=100" \
+            --jq ".[] | select(.title == \"$title\") | .number")"
+          number="$(printf '%s\n' "$numbers" | sed -n '1p')"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            if [ -z "$number" ]; then
+              echo "No open issue to close."
+              exit 0
+            fi
+            # A passing job must not close an issue that a failing job of the same run
+            # opened. The failure text names the run URL, in the body of a new issue or
+            # in a comment on an open one.
+            body_text="$(gh api "repos/$repo/issues/$number" --jq '.body')"
+            case "$body_text" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
+            comments="$(gh api --paginate "repos/$repo/issues/$number/comments?per_page=100" --jq '.[].body')"
+            case "$comments" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
+            gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
+            exit 0
+          fi
+
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$repo" --body-file "$body"
+            # A passing job of this run may have closed the issue between the lookup and
+            # the comment. A failure must leave the issue open.
+            state="$(gh api "repos/$repo/issues/$number" --jq '.state')"
+            if [ "$state" = "closed" ]; then
+              gh issue reopen "$number" -R "$repo"
+            fi
+          else
+            gh issue create -R "$repo" --title "$title" --body-file "$body"
+          fi
+
+  # The manual's Windows route. It installs Ubuntu under WSL2, installs the
+  # toolchain inside the distribution, and then runs the bundle build and every
+  # block checker there. The `/mnt/c` copy the manual prints is not needed,
+  # because the checkout already sits on the Windows filesystem that WSL2
+  # mounts.
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ZIG_VERSION: 0.16.0
+
+    steps:
+      - name: Check out the materials repository
+        uses: actions/checkout@v7
+        with:
+          repository: WhiteLicorice/Ren-s-Materials
+          ssh-key: ${{ secrets.MATERIALS_DEPLOY_KEY }}
+          ref: ${{ inputs.ref || 'master' }}
+          path: materials
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The manual prints `wsl --install -d Ubuntu`. The lines below are that
+      # command split so a runner with no distribution yet can take it.
+      - name: Install Ubuntu under WSL2
+        run: |
+          wsl --install --no-distribution
+          wsl --update
+          wsl --install -d Ubuntu --no-launch
+          wsl --set-default-version 2
+          wsl -d Ubuntu -- bash -lc 'uname -a'
+          $kernel = (wsl -d Ubuntu -- bash -lc 'uname -r').Trim()
+          Write-Output "kernel: $kernel"
+          if ($kernel -notmatch 'WSL2') { throw "Ubuntu did not start at version 2: $kernel" }
+
+      # The install lines are the ones the b1 manual prints for Ubuntu, in
+      # Part 5. poppler-utils is added because one release check reads the psABI
+      # PDF.
+      - name: Install the toolchain the manual prints for Ubuntu
+        run: |
+          $script = @'
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld qemu-system-riscv32 qemu-user \
+            gdb-multiarch jq curl make poppler-utils
+          curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-$(uname -m)-linux-${ZIG_VERSION}.tar.xz" \
+            | sudo tar -xJ -C /opt
+          sudo ln -sf "/opt/zig-$(uname -m)-linux-${ZIG_VERSION}/zig" /usr/local/bin/zig
+          cat /etc/os-release
+          zig version
+          qemu-riscv32 --version | head -1
+          clang --version | head -1
+          ld.lld --version | head -1
+          llvm-objcopy --version | head -1
+          qemu-system-riscv32 --version | head -1
+          gdb-multiarch --version | head -1
+          make --version | head -1
+          jq --version
+          pdftotext -v 2>&1 | head -1
+          test "$(zig version)" = "${ZIG_VERSION}"
+          '@
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/step.sh", ($script -replace "`r`n", "`n"))
+          $posixScript = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP/step.sh").Trim()
+          $posixWorkspace = (wsl -d Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
+          $posixTemp = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP").Trim()
+          wsl -d Ubuntu -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp' ZIG_VERSION='$env:ZIG_VERSION'; cd '$posixWorkspace'; bash '$posixScript'"
+          exit $LASTEXITCODE
+
+      - name: Build the bundles and check them against their manifests
+        run: |
+          $script = @'
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 125/Laboratory"
+          bash make-bootcamp-bundles.sh
+          '@
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/step.sh", ($script -replace "`r`n", "`n"))
+          $posixScript = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP/step.sh").Trim()
+          $posixWorkspace = (wsl -d Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
+          $posixTemp = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP").Trim()
+          wsl -d Ubuntu -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp' ZIG_VERSION='$env:ZIG_VERSION'; cd '$posixWorkspace'; bash '$posixScript'"
+          exit $LASTEXITCODE
+
+      - name: Run every block's checker from its generated bundle
+        run: |
+          $script = @'
+          set -euo pipefail
+          exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
+          cd "materials/CMSC 125/Laboratory"
+          bash make-bootcamp-bundles.sh verify-references
+          '@
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/step.sh", ($script -replace "`r`n", "`n"))
+          $posixScript = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP/step.sh").Trim()
+          $posixWorkspace = (wsl -d Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
+          $posixTemp = (wsl -d Ubuntu -- wslpath -a "$env:RUNNER_TEMP").Trim()
+          wsl -d Ubuntu -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp' ZIG_VERSION='$env:ZIG_VERSION'; cd '$posixWorkspace'; bash '$posixScript'"
+          exit $LASTEXITCODE
+
+      - name: Report the result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TESTED_REF: ${{ inputs.ref || 'master' }}
+          JOB_NAME: ${{ github.job }}
+          MATRIX_ENTRY: ${{ toJSON(matrix) }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          full="$RUNNER_TEMP/full-output.txt"
+
+          # The public log prints the case names and the pass or fail results.
+          # The full output stays in the file and goes to the private issue.
+          if [ -f "$full" ]; then
+            grep -E '^\[(PASS|FAIL)\]|^[0-9]+/[0-9]+ |^result: |^KTEST VERDICT |^  (ok|fail|warn) |^checks: |^(PASS|FAIL) |^All published checks passed|^verify\.sh: |^self-tests: pass|^shared files: in sync|^no QEMU process is left|^starter .* ok|^exported |^verify: PASS|^Lab [0-9] count|^All Lab [0-9] checks passed|^Group Lab|^[0-9]+ of [0-9]+ steps complete|^Some checks in cases failed|^the reference state imported|^CMSC197_' "$full" || true
+          fi
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "MATERIALS_ISSUES_TOKEN is empty. The issue report is skipped."
+            exit 0
+          fi
+
+          case "$JOB_STATUS" in
+            success|failure) ;;
+            *) echo "Job status $JOB_STATUS. The issue report is skipped."; exit 0 ;;
+          esac
+
+          repo=WhiteLicorice/Ren-s-Materials
+          title="CI: $WORKFLOW_NAME failed"
+          body="$RUNNER_TEMP/issue-body.txt"
+          {
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Tested ref: %s\n' "$TESTED_REF"
+            printf 'Job: %s\n' "$JOB_NAME"
+            printf 'Matrix: %s\n' "$MATRIX_ENTRY"
+            printf '\n'
+          } > "$body"
+          budget=$(( 60000 - $(wc -c < "$body") ))
+          if [ -f "$full" ]; then
+            tail -c "$budget" "$full" >> "$body"
+          fi
+
+          numbers="$(gh api --paginate "repos/$repo/issues?state=open&per_page=100" \
+            --jq ".[] | select(.title == \"$title\") | .number")"
+          number="$(printf '%s\n' "$numbers" | sed -n '1p')"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            if [ -z "$number" ]; then
+              echo "No open issue to close."
+              exit 0
+            fi
+            # A passing job must not close an issue that a failing job of the same run
+            # opened. The failure text names the run URL, in the body of a new issue or
+            # in a comment on an open one.
+            body_text="$(gh api "repos/$repo/issues/$number" --jq '.body')"
+            case "$body_text" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
+            comments="$(gh api --paginate "repos/$repo/issues/$number/comments?per_page=100" --jq '.[].body')"
+            case "$comments" in
+              *"$RUN_URL"*)
+                echo "Another job of this run failed. The issue stays open."
+                exit 0
+                ;;
+            esac
+            gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
+            exit 0
+          fi
+
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$repo" --body-file "$body"
+            # A passing job of this run may have closed the issue between the lookup and
+            # the comment. A failure must leave the issue open.
+            state="$(gh api "repos/$repo/issues/$number" --jq '.state')"
+            if [ "$state" = "closed" ]; then
+              gh issue reopen "$number" -R "$repo"
+            fi
+          else
+            gh issue create -R "$repo" --title "$title" --body-file "$body"
+          fi
