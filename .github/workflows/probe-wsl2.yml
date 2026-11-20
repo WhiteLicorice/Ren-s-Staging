@@ -21,15 +21,23 @@ jobs:
     steps:
       - name: Record the runner
         shell: pwsh
+        continue-on-error: true
         run: |
           Write-Output "ImageOS=$env:ImageOS ImageVersion=$env:ImageVersion"
           Get-ComputerInfo -Property WindowsProductName, WindowsVersion, OsBuildNumber, HyperVisorPresent |
             Format-List
           Write-Output "--- processor virtualization ---"
-          Get-CimInstance Win32_Processor | Select-Object Name, VirtualizationFirmwareEnabled, SecondLevelAddressTranslationExtensions | Format-List
+          Get-CimInstance Win32_Processor |
+            Select-Object Name, VirtualizationFirmwareEnabled, SecondLevelAddressTranslationExtensions |
+            Format-List
           Write-Output "--- optional features ---"
-          Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux, VirtualMachinePlatform |
-            Select-Object FeatureName, State | Format-Table -AutoSize
+          foreach ($feature in 'Microsoft-Windows-Subsystem-Linux', 'VirtualMachinePlatform') {
+            $state = (Get-WindowsOptionalFeature -Online -FeatureName $feature -ErrorAction SilentlyContinue).State
+            Write-Output "$feature=$state"
+          }
+          Write-Output "--- dism ---"
+          dism.exe /online /get-featureinfo /featurename:VirtualMachinePlatform
+          Write-Output "exit=$LASTEXITCODE"
 
       - name: Report the WSL command state before any install
         shell: pwsh
@@ -55,7 +63,7 @@ jobs:
           Write-Output "--- wsl --update ---"
           wsl --update
           Write-Output "exit=$LASTEXITCODE"
-          Write-Output "--- wsl --install -d Ubuntu ---"
+          Write-Output "--- wsl --install -d Ubuntu --no-launch ---"
           wsl --install -d Ubuntu --no-launch
           Write-Output "exit=$LASTEXITCODE"
           Write-Output "--- wsl --list --verbose ---"
@@ -106,6 +114,7 @@ jobs:
 
       - name: Summarise
         shell: pwsh
+        continue-on-error: true
         run: |
           Write-Output "--- final wsl --list --verbose ---"
           wsl --list --verbose
