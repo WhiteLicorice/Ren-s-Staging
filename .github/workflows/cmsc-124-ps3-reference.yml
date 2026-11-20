@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out the materials repository
@@ -66,13 +66,32 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install clisp
 
+      # The manual's Windows route is WinGet for Git, then the official CLISP
+      # 2.49 archive unpacked to C:\clisp, then one line that adds its folder to
+      # the user PATH. The manual uses curl.exe because PowerShell's curl alias
+      # answers that host with a web page instead of the archive.
+      - name: Install Git and CLISP (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          winget install --id Git.Git --exact --accept-package-agreements --accept-source-agreements
+          $url = "https://downloads.sourceforge.net/project/clisp/clisp/2.49/" +
+                 "clisp-2.49-win32-mingw-big.zip"
+          curl.exe -sSL -o "$env:RUNNER_TEMP\clisp.zip" $url
+          Expand-Archive -Path "$env:RUNNER_TEMP\clisp.zip" -DestinationPath "C:\clisp" -Force
+          if (-not (Test-Path 'C:\clisp\clisp-2.49\clisp.exe')) { throw 'CLISP did not unpack to C:\clisp\clisp-2.49' }
+          [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\clisp\clisp-2.49', 'User')
+          'C:\clisp\clisp-2.49' | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
       - name: Report the version this runner grades with
+        shell: bash
         run: clisp --version
 
       # verify.sh copies the starter to a temporary directory, overlays
       # reference/predictions.tsv, src/evaluator.lisp, and ANALYSIS.md, then
       # runs the starter's published check.sh against it. Expect 90/90.
       - name: Run the published checks with the solution overlaid
+        shell: bash
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           bash "materials/CMSC 124/Lecture/ps-clisp/reference/verify.sh"
