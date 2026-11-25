@@ -15,6 +15,13 @@ on:
 permissions:
   contents: read
 
+# One run of this suite at a time. An older run ends before a newer one
+# starts, so an older run cannot close an issue that a newer run opened. A
+# second pending run replaces the older pending one.
+concurrency:
+  group: cmsc-127-lab-reference
+  cancel-in-progress: false
+
 jobs:
   reference:
     strategy:
@@ -455,6 +462,7 @@ jobs:
           GH_TOKEN: ${{ secrets.MATERIALS_ISSUES_TOKEN }}
           WORKFLOW_NAME: ${{ github.workflow }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
@@ -482,6 +490,24 @@ jobs:
             --jq ".[] | select(.title == \"$title\") | .number" | sed -n '1p')"
           if [ -z "$number" ]; then
             echo "No open issue to close."
+            exit 0
+          fi
+
+          # A newer run may have opened this issue. It names its run in the
+          # body or in a comment. Close the issue only when the newest run it
+          # names is this run or an older one, so an older run cannot report a
+          # pass over a newer failure.
+          body_text="$(gh api "repos/$repo/issues/$number" --jq '.body')"
+          comments="$(gh api --paginate "repos/$repo/issues/$number/comments?per_page=100" --jq '.[].body')"
+          newest="$(printf '%s\n%s\n' "$body_text" "$comments" \
+            | grep -oE "github\.com/$GITHUB_REPOSITORY/actions/runs/[0-9]+" \
+            | sed -n 's|.*/||p' | sort -n | tail -1 || true)"
+          if [ -z "$newest" ]; then
+            echo "The issue names no run. The issue stays open."
+            exit 0
+          fi
+          if [ "$newest" -gt "$RUN_ID" ]; then
+            echo "Run $newest is newer than this run $RUN_ID. The issue stays open."
             exit 0
           fi
           gh issue close "$number" -R "$repo" --comment "Passing run: $RUN_URL"
