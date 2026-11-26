@@ -240,7 +240,7 @@ jobs:
           set -e
           printf '%s\n' "$out"
           [ "$rc" -eq 0 ]
-          printf '%s\n' "$out" | grep -q 'self-tests: pass (36 checks)'
+          printf '%s\n' "$out" | grep -q 'self-tests: pass (40 checks)'
           '@
           [IO.File]::WriteAllText("$env:RUNNER_TEMP/step.sh", ($script -replace "`r`n", "`n"))
           # wsl.exe drops the backslashes from a Windows path, so wslpath gets
@@ -553,7 +553,7 @@ jobs:
           set -e
           printf '%s\n' "$out"
           [ "$rc" -eq 0 ]
-          printf '%s\n' "$out" | grep -q 'self-tests: pass (43 checks)'
+          printf '%s\n' "$out" | grep -q 'self-tests: pass (48 checks)'
           '@
           [IO.File]::WriteAllText("$env:RUNNER_TEMP/step.sh", ($script -replace "`r`n", "`n"))
           # wsl.exe drops the backslashes from a Windows path, so wslpath gets
