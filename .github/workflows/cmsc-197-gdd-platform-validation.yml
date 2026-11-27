@@ -483,12 +483,18 @@ jobs:
       # import log of the saved reference state, which lists every file in the
       # instructor project. The short retention keeps a public artifact from
       # outliving its use.
+      #
+      # inventory.txt is uploaded on its own because it records the runner
+      # image version, and a later failure needs that number. It lists the
+      # runner and its packages, never the instructor project.
       - name: Retain the replay evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cmsc197-t01-${{ matrix.image }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/editor-replay/evidence/
+          path: |
+            ${{ runner.temp }}/editor-replay/evidence/
+            ${{ runner.temp }}/evidence/inventory.txt
           retention-days: 3
 
       - name: Report a failure
