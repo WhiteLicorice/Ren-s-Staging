@@ -268,11 +268,11 @@ jobs:
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
-          if ! grep -rqsE 'not allowed assistive access|-25211' \
+          if ! grep -rqsE 'not allowed assistive access|-25211|did not come to the front' \
               "$RUN_DIR"/evidence/diagnostics-*.txt; then
             exit "$status"
           fi
-          echo "Accessibility was refused. The replay starts again once."
+          echo "The desktop refused the replay. The replay starts again once."
           pkill -f 'Godot.app/Contents/MacOS/Godot' || true
           sleep 5
           replay
