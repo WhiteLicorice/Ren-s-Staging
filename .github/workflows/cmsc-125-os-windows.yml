@@ -545,8 +545,8 @@ jobs:
           $script = @'
           cd "materials/CMSC 125/Laboratory/os-reference"
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 4 manual prints this command and its 43-check count
-          # (cmsc-125-lab4.md:431-434).
+          # The Lab 4 manual prints this command and its 48-check count
+          # (cmsc-125-lab4.md:441).
           set +e
           out="$(make test-harness 2>&1)"
           rc=$?
