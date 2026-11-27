@@ -247,14 +247,35 @@ jobs:
           displayplacer list
 
       - name: Replay the manual, Steps 1 to 19
+        # Runs 45992242833 and 46013811946 lost the System Events
+        # Accessibility grant after the project manager handed over to the
+        # editor. The grant is seeded by the image, and a fresh session reads
+        # it again. The replay therefore starts one more time, and only for
+        # that refusal. Every other error keeps its exit code.
         run: |
           set -euo pipefail
           exec > >(tee "$EVIDENCE/replay-steps-1-19.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
-          python3 "$REPLAY/drive.py" session-start \
-            --run-dir "$RUN_DIR" \
-            --engine "$ENGINE" \
-            --templates "$GODOT_TEMPLATES"
-          python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 1 --end 19
+          replay() {
+            rm -rf "$RUN_DIR"
+            python3 "$REPLAY/drive.py" session-start \
+              --run-dir "$RUN_DIR" \
+              --engine "$ENGINE" \
+              --templates "$GODOT_TEMPLATES"
+            python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 1 --end 19
+          }
+          status=0
+          replay || status=$?
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if ! grep -rqsE 'not allowed assistive access|-25211' \
+              "$RUN_DIR"/evidence/diagnostics-*.txt; then
+            exit "$status"
+          fi
+          echo "Accessibility was refused. The replay starts again once."
+          pkill -f 'Godot.app/Contents/MacOS/Godot' || true
+          sleep 5
+          replay
 
       - name: Replay the manual, Steps 20 to 22
         if: runner.os == 'Linux'
