@@ -152,16 +152,49 @@ jobs:
       - name: Import and run the three workshop starters
         # The starters carry no gameplay. A clean import and a clean run prove
         # the project settings and the asset set on a fresh machine.
+        #
+        # Runs 46008197750 and 46010832392 died with exit 139 in the headless
+        # engine before it printed a line. The runner killed the process with
+        # SIGSEGV on a fresh machine, so each headless call gets three tries
+        # and the log prints when all three fail.
         run: |
           set -euo pipefail
           exec > >(tee "$EVIDENCE/starters.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           root="$GITHUB_WORKSPACE/materials/CMSC 197 (Game Design and Development)/Laboratory"
+          run_headless() {
+            game="$1"
+            log="$EVIDENCE/starter-$game.log"
+            shift
+            attempt=1
+            while :; do
+              status=0
+              "$ENGINE" "$@" >> "$log" 2>&1 || status=$?
+              if [ "$status" -eq 0 ]; then
+                return 0
+              fi
+              if [ "$attempt" -ge 3 ]; then
+                return "$status"
+              fi
+              attempt=$((attempt + 1))
+              printf 'starter %s: exit %s, retry %s\n' "$game" "$status" "$attempt" >> "$log"
+              sleep 5
+            done
+          }
           for game in breakout mega-man crimsonland; do
             project="$root/$game-starter"
             test -f "$project/project.godot"
             log="$EVIDENCE/starter-$game.log"
-            "$ENGINE" --headless --path "$project" --import > "$log" 2>&1
-            "$ENGINE" --headless --path "$project" --quit >> "$log" 2>&1
+            : > "$log"
+            if ! run_headless "$game" --headless --path "$project" --import; then
+              cat "$log"
+              echo "starter $game import failed"
+              exit 1
+            fi
+            if ! run_headless "$game" --headless --path "$project" --quit; then
+              cat "$log"
+              echo "starter $game run failed"
+              exit 1
+            fi
             cat "$log"
             if grep -E '(^|] )ERROR|SCRIPT ERROR|Failed to load|Cannot open' "$log"; then
               echo "starter $game reported an error"
