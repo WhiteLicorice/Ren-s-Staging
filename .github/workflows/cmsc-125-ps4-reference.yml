@@ -2,7 +2,7 @@
 # instructor reference overlaid. It expects a clean pass.
 #
 # The starter repository has its own workflow, and that run is red on purpose:
-# the starter ships five unimplemented files, so it passes 8 of its 52 cases.
+# the starter ships five unimplemented files, so it passes 14 of its 67 cases.
 # That number says nothing about whether the assignment can be finished. This
 # workflow answers that question, and it lives here because this is the only
 # repository holding the solution.
@@ -61,7 +61,7 @@ jobs:
 
       # verify.sh copies the starter to a new work directory. It overlays
       # reference/src/*.c, runs the starter's own check.sh, runs the student
-      # case, then runs both self-test files. Expect 52/52 cases, 5/5
+      # case, then runs both self-test files. Expect 67/67 cases, 5/5
       # invariant checks, 1/1 student case, 13/13 and 7/7 self-tests, and
       # exit 0.
       - name: Run the published checks with the solution overlaid
@@ -185,10 +185,11 @@ jobs:
         shell: bash
         run: git -C materials submodule update --init -- "CMSC 125/Lecture/ps4/starter"
 
-      # The manual prints `wsl --install -d Ubuntu` and names Ubuntu 24.04. The
-      # `Ubuntu` name now installs 26.04, where the manual's apt line fails
-      # because `qemu-system-riscv32` has no installation candidate, so this job
-      # asks for `Ubuntu-24.04` by name.
+      # The manual prints `wsl --install -d Ubuntu-24.04` and names that
+      # release in every later command. The bare `Ubuntu` name now installs
+      # 26.04. On 26.04 the manual's apt line fails because the
+      # `qemu-system-riscv32` package has no installation candidate. This job
+      # therefore asks for `Ubuntu-24.04` by name.
       - name: Install Ubuntu under WSL2
         run: |
           wsl --install --no-distribution

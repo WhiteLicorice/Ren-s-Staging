@@ -2,7 +2,7 @@
 # instructor reference overlaid. It expects a clean pass.
 #
 # The starter repository has its own workflow, and that run is red on purpose:
-# the starter ships four unimplemented files, so it passes 6 of its 104 cases.
+# the starter ships four unimplemented files, so it passes 6 of its 106 cases.
 # That number says nothing about whether the assignment can be finished. This
 # workflow answers that question, and it lives here because this is the only
 # repository holding the solution.
@@ -61,7 +61,7 @@ jobs:
 
       # verify.sh copies the starter to a temporary directory. It overlays
       # reference/src/*.c, runs the starter's own check.sh, and then runs four
-      # private checks and the runner's own self-tests. Expect 104/104 cases,
+      # private checks and the runner's own self-tests. Expect 106/106 cases,
       # 4/4 private checks, 30/30 self-tests, and exit 0.
       - name: Run the published checks with the solution overlaid
         run: |
@@ -184,10 +184,11 @@ jobs:
         shell: bash
         run: git -C materials submodule update --init -- "CMSC 125/Lecture/ps2/starter"
 
-      # The manual prints `wsl --install -d Ubuntu` and names Ubuntu 24.04. The
-      # `Ubuntu` name now installs 26.04, where the manual's apt line fails
-      # because `qemu-system-riscv32` has no installation candidate, so this job
-      # asks for `Ubuntu-24.04` by name.
+      # The manual prints `wsl --install -d Ubuntu-24.04` and names that
+      # release in every later command. The bare `Ubuntu` name now installs
+      # 26.04. On 26.04 the manual's apt line fails because the
+      # `qemu-system-riscv32` package has no installation candidate. This job
+      # therefore asks for `Ubuntu-24.04` by name.
       - name: Install Ubuntu under WSL2
         run: |
           wsl --install --no-distribution
@@ -330,7 +331,7 @@ jobs:
         shell: bash
 
       # The macOS setup section prints xcode-select --install, brew --version,
-      # and brew install python (cmsc-125-ps2.md:592, :599, :605), and it runs
+      # and brew install python (cmsc-125-ps2.md:580, :600, :606), and it runs
       # the last two only when Python is older than 3.9. The installer is
       # interactive, so the step checks its result instead: a compiler, make,
       # Homebrew, and the Python floor the manual names. A runner carries full
@@ -355,7 +356,7 @@ jobs:
 
       # verify.sh copies the starter to a temporary directory. It overlays
       # reference/src/*.c, runs the starter's own check.sh, and then runs four
-      # private checks and the runner's own self-tests. Expect 104/104 cases,
+      # private checks and the runner's own self-tests. Expect 106/106 cases,
       # 4/4 private checks, 30/30 self-tests, and exit 0.
       - name: Run the published checks with the solution overlaid
         run: |
