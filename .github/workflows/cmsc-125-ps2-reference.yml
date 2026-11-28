@@ -158,9 +158,7 @@ jobs:
 
   # The manual's Windows route runs Ubuntu inside Windows Subsystem for Linux 2
   # and then runs every course command inside it. This job follows that route on
-  # a hosted Windows runner. Probe run 44644114479 proved that WSL2 starts
-  # there, that `uname -r` reports the WSL2 kernel, and that `qemu-riscv32`
-  # installs and runs inside the distribution.
+  # a hosted Windows runner.
   reference-windows:
     runs-on: windows-2025
     timeout-minutes: 60
@@ -184,11 +182,10 @@ jobs:
         shell: bash
         run: git -C materials submodule update --init -- "CMSC 125/Lecture/ps2/starter"
 
-      # The manual prints `wsl --install -d Ubuntu-24.04` and names that
-      # release in every later command. The bare `Ubuntu` name now installs
-      # 26.04. On 26.04 the manual's apt line fails because the
-      # `qemu-system-riscv32` package has no installation candidate. This job
-      # therefore asks for `Ubuntu-24.04` by name.
+      # The manual and the starter README print `wsl --install -d Ubuntu-24.04`
+      # and name that release in every later command. The bare `Ubuntu` name
+      # now installs 26.04. This job therefore asks for `Ubuntu-24.04` by
+      # name.
       - name: Install Ubuntu under WSL2
         run: |
           wsl --install --no-distribution
