@@ -70,6 +70,7 @@ jobs:
           mkdir -p "$EVIDENCE"
           printf 'EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
           printf 'RUN_DIR=%s\n' "$RUNNER_TEMP/editor-replay" >> "$GITHUB_ENV"
+          printf 'ATTEMPT_1=%s\n' "$RUNNER_TEMP/editor-replay-attempt-1" >> "$GITHUB_ENV"
           exec > >(tee "$EVIDENCE/inventory.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           date -u
           uname -a
@@ -155,8 +156,9 @@ jobs:
         #
         # Runs 46008197750 and 46010832392 died with exit 139 in the headless
         # engine before it printed a line. The runner killed the process with
-        # SIGSEGV on a fresh machine, so each headless call gets three tries
-        # and the log prints when all three fail.
+        # SIGSEGV on a fresh machine, so each headless call gets three tries.
+        # Each try writes its own file. The shared log holds the try that
+        # ended the call, so a failed first try cannot fail a later pass.
         run: |
           set -euo pipefail
           exec > >(tee "$EVIDENCE/starters.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
@@ -167,12 +169,19 @@ jobs:
             shift
             attempt=1
             while :; do
+              attempt_log="$log.$attempt"
               status=0
-              "$ENGINE" "$@" >> "$log" 2>&1 || status=$?
+              "$ENGINE" "$@" > "$attempt_log" 2>&1 || status=$?
               if [ "$status" -eq 0 ]; then
+                # The step greps this file, so only a winning try reaches it.
+                cat "$attempt_log" >> "$log"
                 return 0
               fi
               if [ "$attempt" -ge 3 ]; then
+                # Every try failed. Keep all three so the failure is readable.
+                for number in 1 2 3; do
+                  cat "$log.$number" >> "$log"
+                done
                 return "$status"
               fi
               attempt=$((attempt + 1))
@@ -252,15 +261,27 @@ jobs:
         # editor. The grant is seeded by the image, and a fresh session reads
         # it again. The replay therefore starts one more time, and only for
         # that refusal. Every other error keeps its exit code.
+        #
+        # The refusal reaches a diagnostics file as "window search refused:
+        # ... not allowed assistive access. (-25211)", raised by
+        # MacBackend.search_windows. Those two strings are the only ones the
+        # grep tests. The front-window report is evidence, not an error, so no
+        # pattern for it can fire and none is listed.
         run: |
           set -euo pipefail
           exec > >(tee "$EVIDENCE/replay-steps-1-19.txt" >> "$RUNNER_TEMP/full-output.txt") 2>&1
           replay() {
+            # The retry starts from an empty run directory. Keep the first
+            # attempt's evidence, so the artifact shows where it stopped.
+            if [ -d "$RUN_DIR/evidence" ]; then
+              mkdir -p "$ATTEMPT_1"
+              mv "$RUN_DIR/evidence" "$ATTEMPT_1/evidence"
+            fi
             rm -rf "$RUN_DIR"
             python3 "$REPLAY/drive.py" session-start \
               --run-dir "$RUN_DIR" \
               --engine "$ENGINE" \
-              --templates "$GODOT_TEMPLATES"
+              --templates "$GODOT_TEMPLATES" &&
             python3 "$REPLAY/drive.py" run --run-dir "$RUN_DIR" --start 1 --end 19
           }
           status=0
@@ -268,7 +289,7 @@ jobs:
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
-          if ! grep -rqsE 'not allowed assistive access|-25211|did not come to the front' \
+          if ! grep -rqsE 'not allowed assistive access|-25211' \
               "$RUN_DIR"/evidence/diagnostics-*.txt; then
             exit "$status"
           fi
@@ -541,6 +562,9 @@ jobs:
       # inventory.txt is uploaded on its own because it records the runner
       # image version, and a later failure needs that number. It lists the
       # runner and its packages, never the instructor project.
+      #
+      # A restart moves the first attempt's evidence to attempt-1, so the
+      # artifact keeps the stopped run beside the one that replaced it.
       - name: Retain the replay evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -548,6 +572,7 @@ jobs:
           name: cmsc197-t01-${{ matrix.image }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/editor-replay/evidence/
+            ${{ runner.temp }}/editor-replay-attempt-1/evidence/
             ${{ runner.temp }}/evidence/inventory.txt
           retention-days: 3
 
