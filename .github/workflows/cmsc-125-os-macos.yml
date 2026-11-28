@@ -234,7 +234,7 @@ jobs:
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
           # The Lab 4 manual prints make disk-mac in its six-command block
-          # (cmsc-125-lab4.md:390). Run it as printed and read the size back.
+          # (cmsc-125-lab4.md:400). Run it as printed and read the size back.
           make disk-mac
           size=$(wc -c < build/disk.tar)
           echo "build/disk.tar is $size bytes"
@@ -244,8 +244,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 1 manual prints this command at cmsc-125-lab1.md:373 and
-          # the CC prefix at :376. The case is the listing the manual has the
+          # The Lab 1 manual prints this command at cmsc-125-lab1.md:379 and
+          # the CC prefix at :382. The case is the listing the manual has the
           # student save as tests/cases/order.c, so extract it from the page.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab1/cmsc-125-lab1.md" > tests/cases/order.c <<'PY'
           import re
@@ -271,8 +271,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 2 manual prints this command at cmsc-125-lab2.md:413 and
-          # the CC prefix at :416. The case is the listing the manual has the
+          # The Lab 2 manual prints this command at cmsc-125-lab2.md:427 and
+          # the CC prefix at :430. The case is the listing the manual has the
           # student save as tests/cases/flags.c, so extract it from the page.
           python3 - "$GITHUB_WORKSPACE/materials/CMSC 125/Laboratory/lab2/cmsc-125-lab2.md" > tests/cases/flags.c <<'PY'
           import re
@@ -298,8 +298,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 3 manual prints this command at cmsc-125-lab3.md:490-491
-          # and the CC prefix at :498.
+          # The Lab 3 manual prints this command at cmsc-125-lab3.md:496-497
+          # and the CC prefix at :504.
           set +e
           out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case stage3_user_app --source tests/cases/stage3_user_app.c --assertions 4 2>&1)"
           rc=$?
@@ -312,8 +312,8 @@ jobs:
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
-          # The Lab 4 manual prints this command at cmsc-125-lab4.md:676 and
-          # the CC prefix at :680.
+          # The Lab 4 manual prints this command at cmsc-125-lab4.md:687-688 and
+          # the CC prefix at :691.
           set +e
           out="$(CC=$(brew --prefix)/opt/llvm/bin/clang bash tests/run-tests.sh --case stage4_persistence --source tests/cases/stage4_persistence.c --assertions 3 --boots 2 2>&1)"
           rc=$?
@@ -336,7 +336,7 @@ jobs:
       # step's filter holds no KTEST BEGIN or KTEST END pattern, so a capture
       # here would never reach the log. The log holds CRLF line endings, and the
       # controller strips the carriage return before it parses the log
-      # (tests/run-tests.sh:112), so this step does the same.
+      # (tests/run-tests.sh:125), so this step does the same.
       - name: Show stage 4 create-file serial logs
         if: always()
         working-directory: "materials/CMSC 125/Laboratory/os-reference"
