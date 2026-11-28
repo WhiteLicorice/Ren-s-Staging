@@ -108,7 +108,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: The Lab 1 companion's compiler command works
@@ -155,7 +155,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Check the bootcamp ISO URLs and published checksums
@@ -177,7 +177,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Starter builds
@@ -194,7 +194,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Starter boots and prints its banner
@@ -227,7 +227,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Starter controller self-tests pass
@@ -249,7 +249,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Starter stage 1 case fails to build as expected
@@ -273,7 +273,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Reference passes stage 1
@@ -289,7 +289,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Reference passes stage 2
@@ -306,7 +306,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Reference passes stage 3
@@ -323,7 +323,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: The test disk image is large enough for both file slots
@@ -366,7 +366,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: The Lab 4 disk image is 10,240 bytes
@@ -387,7 +387,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: The Lab 1 case command passes
@@ -426,7 +426,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: The Lab 2 case command passes
@@ -463,7 +463,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: The Lab 3 case command passes
@@ -487,7 +487,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: The Lab 4 case command passes
@@ -511,7 +511,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Reference passes stage 4
@@ -528,7 +528,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Show stage 4 case results
@@ -558,7 +558,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Reference controller self-tests pass
@@ -582,7 +582,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Shared files are in sync
@@ -603,7 +603,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: No QEMU process is left
@@ -623,7 +623,7 @@ jobs:
           $posixScript = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP/step.sh" -replace '\\', '/')).Trim()
           $posixWorkspace = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:GITHUB_WORKSPACE" -replace '\\', '/')).Trim()
           $posixTemp = (wsl -d Ubuntu-24.04 -- wslpath -a ("$env:RUNNER_TEMP" -replace '\\', '/')).Trim()
-          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash '$posixScript'"
+          wsl -d Ubuntu-24.04 -- bash -lc "export GITHUB_WORKSPACE='$posixWorkspace' RUNNER_TEMP='$posixTemp'; cd '$posixWorkspace'; bash -e -o pipefail '$posixScript'"
           exit $LASTEXITCODE
 
       - name: Report the result
