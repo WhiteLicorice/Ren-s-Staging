@@ -13,7 +13,7 @@
 #     the distribution. Probe run 44644114479 proved that WSL2 starts on a
 #     hosted Windows runner and that `qemu-riscv32` runs inside it.
 #   * macOS runs Ubuntu in a virtual machine, because `qemu-riscv32` is a
-#     Linux and BSD host program. The manual prints UTM and the Ubuntu 24.04
+#     Linux host program. The manual prints UTM and the Ubuntu 24.04
 #     server image. A hosted macOS runner cannot run a nested virtual machine,
 #     so the `ubuntu-24.04` job is the proof of the Ubuntu that route installs.
 #     The macOS-side steps (UTM, the Ubuntu installer) are not exercised here.
