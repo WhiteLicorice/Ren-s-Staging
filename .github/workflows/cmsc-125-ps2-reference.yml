@@ -60,9 +60,9 @@ jobs:
         shell: bash
 
       # verify.sh copies the starter to a temporary directory. It overlays
-      # reference/src/*.c, runs the starter's own check.sh, and then runs four
-      # private checks and the runner's own self-tests. Expect 106/106 cases,
-      # 4/4 private checks, 30/30 self-tests, and exit 0.
+      # reference/src/*.c and runs the starter's own check.sh, which also runs
+      # the four invariant checks, plus the runner's own self-tests. Expect
+      # 106/106 cases, 4/4 invariant checks, 30/30 self-tests, and exit 0.
       - name: Run the published checks with the solution overlaid
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
@@ -352,9 +352,9 @@ jobs:
         shell: bash
 
       # verify.sh copies the starter to a temporary directory. It overlays
-      # reference/src/*.c, runs the starter's own check.sh, and then runs four
-      # private checks and the runner's own self-tests. Expect 106/106 cases,
-      # 4/4 private checks, 30/30 self-tests, and exit 0.
+      # reference/src/*.c and runs the starter's own check.sh, which also runs
+      # the four invariant checks, plus the runner's own self-tests. Expect
+      # 106/106 cases, 4/4 invariant checks, 30/30 self-tests, and exit 0.
       - name: Run the published checks with the solution overlaid
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1

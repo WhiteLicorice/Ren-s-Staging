@@ -63,9 +63,10 @@ jobs:
         shell: bash
 
       # verify.sh copies the starter to a temporary directory. It overlays
-      # reference/src/*.c, runs the starter's own check.sh, and then runs four
-      # private checks. Expect 57/57 cases and exit 0. The fork-failure check
-      # needs LD_PRELOAD, so it reports a skip where the loader ignores it.
+      # reference/src/*.c and runs the starter's own check.sh, which also runs
+      # the four invariant checks. Expect 57/57 cases and exit 0. The
+      # fork-failure check needs LD_PRELOAD, so it reports a skip where the
+      # loader ignores it.
       - name: Run the published checks with the solution overlaid
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
@@ -331,7 +332,7 @@ jobs:
         shell: bash
 
       # The macOS setup section prints xcode-select --install and
-      # python3 --version (cmsc-125-ps1.md:820, :823-828), and it installs
+      # python3 --version (cmsc-125-ps1.md:822, :825), and it installs
       # Python with Homebrew only when the version is older than 3.9. The
       # installer is interactive, so the step checks its result instead: a
       # compiler, make, and the Python floor the manual names. A runner
@@ -358,9 +359,10 @@ jobs:
         shell: bash
 
       # verify.sh copies the starter to a temporary directory. It overlays
-      # reference/src/*.c, runs the starter's own check.sh, and then runs four
-      # private checks. Expect 57/57 cases and exit 0. The fork-failure check
-      # needs LD_PRELOAD, so it reports a skip where the loader ignores it.
+      # reference/src/*.c and runs the starter's own check.sh, which also runs
+      # the four invariant checks. Expect 57/57 cases and exit 0. The
+      # fork-failure check needs LD_PRELOAD, so it reports a skip where the
+      # loader ignores it.
       - name: Run the published checks with the solution overlaid
         run: |
           exec >> "$RUNNER_TEMP/full-output.txt" 2>&1
